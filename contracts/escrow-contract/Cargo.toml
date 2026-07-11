@@ -6,7 +6,7 @@ description = "Soroban escrow — client-funded jobs and release_escrow to freel
 license = "MIT"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 soroban-sdk = "26.1.0"

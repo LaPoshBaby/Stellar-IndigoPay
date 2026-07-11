@@ -6,7 +6,6 @@ paths = [
   "\\.spec\\.(ts|tsx|js|jsx)$",
   "__tests__",
   "__mocks__",
-  "test_snapshots",
   "node_modules",
   "target",
   "\\.env\\.example$",
