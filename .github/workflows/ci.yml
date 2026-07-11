@@ -78,7 +78,7 @@ jobs:
           version: latest
       - run: helm lint helm/indigopay/
       - name: Validate Helm templates (syntax + YAML)
-        run: helm template indigopay helm/indigopay/ > /dev/null
+        run: helm template stellar-indigopay helm/indigopay/ > /dev/null
         # helm template validates Go template syntax and value rendering; no
         # cluster access is required, unlike kubectl apply --dry-run (which
         # needs a running K8s API server even with --validate=false).

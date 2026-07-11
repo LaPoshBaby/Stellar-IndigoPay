@@ -30,13 +30,13 @@ jobs:
 
       - name: Build image
         run: |
-          docker build -t indigopay-${{ matrix.service }}:scan \
+          docker build -t stellar-indigopay-${{ matrix.service }}:scan \
             ./${{ matrix.service }}
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: indigopay-${{ matrix.service }}:scan
+          image-ref: stellar-indigopay-${{ matrix.service }}:scan
           format: "sarif"
           output: "trivy-${{ matrix.service }}.sarif"
           severity: "CRITICAL,HIGH"

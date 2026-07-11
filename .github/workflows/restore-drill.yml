@@ -38,7 +38,7 @@ jobs:
         run: |
           docker run -d --name drill-db \
             -e POSTGRES_PASSWORD=postgres \
-            -e POSTGRES_DB=indigopay_drill \
+            -e POSTGRES_DB=stellar_indigopay_drill \
             -p 5433:5432 \
             postgres:16-alpine
           sleep 10
@@ -65,7 +65,7 @@ jobs:
         env:
           PGPASSWORD: postgres
         run: |
-          psql -h localhost -p 5433 -U postgres -d indigopay_drill \
+          psql -h localhost -p 5433 -U postgres -d stellar_indigopay_drill \
             -f /tmp/backup.sql
 
       - name: Assert row counts
@@ -75,7 +75,7 @@ jobs:
           set -euo pipefail
           TABLES=("projects" "donations" "profiles" "webhook_deliveries")
           for T in "${TABLES[@]}"; do
-            COUNT=$(psql -h localhost -p 5433 -U postgres -d indigopay_drill \
+            COUNT=$(psql -h localhost -p 5433 -U postgres -d stellar_indigopay_drill \
               -tAc "SELECT count(*) FROM ${T};")
             if [ "$COUNT" -lt 1 ]; then
               echo "::error::Table ${T} has 0 rows after restore — backup is incomplete"
