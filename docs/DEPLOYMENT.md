@@ -18,7 +18,7 @@ The application requires various environment variables (e.g., database credentia
 Create a Kubernetes Secret from your `.env` file:
 
 ```bash
-kubectl create secret generic indigopay-secrets --from-env-file=.env
+kubectl create secret generic stellar-indigopay-secrets --from-env-file=.env
 ```
 
 *Note: Ensure your `.env` file is properly configured for the production environment and NEVER committed to version control.*
@@ -30,7 +30,7 @@ Once your secrets are in place, you can deploy the application using the provide
 Run the following command from the root of the repository:
 
 ```bash
-helm install indigopay helm/indigopay/
+helm install stellar-indigopay helm/indigopay/
 ```
 
 This will deploy the required deployments, services, and other resources as defined in the Helm chart.
@@ -51,19 +51,19 @@ ingress:
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
   hosts:
-    - host: api.indigopay.example.com
+    - host: api.stellarindigopay.example.com
       paths:
         - path: /
           pathType: ImplementationSpecific
   tls:
-    - secretName: indigopay-tls
+    - secretName: stellar-indigopay-tls
       hosts:
         - api.indigopay.example.com
 ```
 
 Apply the updated configuration:
 ```bash
-helm upgrade indigopay helm/indigopay/ -f values-prod.yaml
+helm upgrade stellar-indigopay helm/indigopay/ -f values-prod.yaml
 ```
 
 ## Running database migrations post-deploy
@@ -73,7 +73,7 @@ After the application is deployed, you must run the database migrations to set u
 Connect to a running backend pod or execute a one-off job to run the migration script:
 
 ```bash
-kubectl exec -it deployment/indigopay-backend -- npm run migrate
+kubectl exec -it deployment/stellar-indigopay-backend -- npm run migrate
 ```
 *(Adjust the command if you use a dedicated migration job or a different package manager command.)*
 

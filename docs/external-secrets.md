@@ -31,7 +31,7 @@ secrets from a central store gives us:
    ```
 
 2. Create the secrets in your manager of choice. The expected layout
-   is one secret per environment (e.g. `indigopay/prod`) with JSON
+   is one secret per environment (e.g. `stellar-indigopay/prod`) with JSON
    keys for each value:
    ```json
    {
@@ -49,7 +49,7 @@ secrets from a central store gives us:
 
 3. Configure IAM access for the operator:
    - **AWS**: create an IAM role with `secretsmanager:GetSecretValue`
-     on `arn:aws:secretsmanager:*:*:secret:indigopay/*`. Bind via
+     on `arn:aws:secretsmanager:*:*:secret:stellar-indigopay/*`. Bind via
      IRSA (EKS) or kube2iam.
    - **GCP**: grant `secretmanager.secretAccessor` on the secret to
      the operator's GCP service account via Workload Identity.
@@ -62,9 +62,9 @@ secrets from a central store gives us:
 
 5. Verify:
    ```bash
-   kubectl get externalsecret -n indigopay
+   kubectl get externalsecret -n stellar-indigopay
    # NAME                 STORE                  REFRESH   STATUS
-   # indigopay-secrets    aws-secrets-manager    58m       SecretSynced
+   # stellar-indigopay-secrets    aws-secrets-manager    58m       SecretSynced
    ```
 
 ## When NOT to use

@@ -25,8 +25,8 @@ from the running cluster.
    engine version for RDS). DO NOT touch the broken pod.
 2. Restore the base backup:
    ```bash
-   aws s3 cp s3://${S3_BUCKET}/backups/indigopay_backup_${TIMESTAMP}.sql.gz /tmp/
-   gunzip /tmp/indigopay_backup_${TIMESTAMP}.sql.gz
+   aws s3 cp s3://${S3_BUCKET}/backups/stellar_indigopay_backup_${TIMESTAMP}.sql.gz /tmp/
+   gunzip /tmp/stellar_indigopay_backup_${TIMESTAMP}.sql.gz
    psql "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${NEW_HOST}:5432/postgres" \
      -f /tmp/indigopay_backup_${TIMESTAMP}.sql
    ```
@@ -49,19 +49,19 @@ from the running cluster.
 
 1. Stop the backend deployment:
    ```bash
-   kubectl scale deploy/backend --replicas=0 -n indigopay
+   kubectl scale deploy/backend --replicas=0 -n stellar-indigopay
    ```
 2. Update the `DATABASE_URL` secret in AWS Secrets Manager to point
    at the new host.
 3. Restart the backend:
    ```bash
-   kubectl scale deploy/backend --replicas=2 -n indigopay
+   kubectl scale deploy/backend --replicas=2 -n stellar-indigopay
    ```
 4. Watch the readiness probe:
    ```bash
-   kubectl logs -n indigopay -l app=backend -c backend --tail=200 -f
+   kubectl logs -n stellar-indigopay -l app=backend -c backend --tail=200 -f
    ```
-5. Smoke test: `curl https://api.indigopay.app/api/health` should
+5. Smoke test: `curl https://api.stellarindigopay.app/api/health` should
    return 200; `/api/projects` should return the expected list.
 
 ## Post-restore

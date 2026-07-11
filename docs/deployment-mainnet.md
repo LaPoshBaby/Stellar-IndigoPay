@@ -1,6 +1,6 @@
 # Mainnet Deployment Runbook
 
-This runbook documents the steps required to deploy Stellar IndigoPay to Stellar Mainnet, configure backend and frontend environment variables, and register the initial climate projects on-chain.
+This runbook documents the steps required to deploy Stellar-IndigoPay to Stellar Mainnet, configure backend and frontend environment variables, and register the initial climate projects on-chain.
 
 > This guide is intended for deployers and DevOps engineers preparing the first Mainnet launch.
 
@@ -14,7 +14,7 @@ This runbook documents the steps required to deploy Stellar IndigoPay to Stellar
 - `freighter` or another Stellar wallet for admin key management
 - Access to update `frontend/.env.local` and `backend/.env`
 
-## 2. Build the IndigoPay Soroban contract
+## 2. Build the Stellar-IndigoPay Soroban contract
 
 The IndigoPay contract lives in `contracts/indigopay-contract`.
 

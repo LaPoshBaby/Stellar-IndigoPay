@@ -56,7 +56,7 @@ roadmap.
 - **Recovery**: rotate the affected secret in AWS Secrets Manager;
   external-secrets-operator will refresh the K8s Secret within
   `refreshInterval` (default 1h). Trigger an immediate refresh with
-  `kubectl annotate externalsecret indigopay-secrets force-sync=$(date +%s)`.
+  `kubectl annotate externalsecret stellar-indigopay-secrets force-sync=$(date +%s)`.
 - **RTO**: < 5 min for credential rotation; < 1h for the operator
   to refresh.
 
