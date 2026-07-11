@@ -59,7 +59,7 @@ inhibit_rules:
 receivers:
   - name: default
     email_configs:
-      - to: alerts@indigopay.app
+      - to: alerts@stellarindigopay.app
         send_resolved: true
   - name: pagerduty
     pagerduty_configs:
@@ -68,13 +68,13 @@ receivers:
         description: "{{ .CommonAnnotations.summary }}"
   - name: slack-page
     slack_configs:
-      - channel: "#indigopay-page"
+      - channel: "#stellar-indigopay-page"
         send_resolved: true
         title: "🚨 {{ .CommonLabels.alertname }}"
-        text: "*{{ .CommonAnnotations.summary }}*\n{{ .CommonAnnotations.description }}\nDashboard: https://grafana.indigopay.app/d/indigopay-backend"
+        text: "*{{ .CommonAnnotations.summary }}*\n{{ .CommonAnnotations.description }}\nDashboard: https://grafana.stellarindigopay.app/d/stellar-indigopay-backend"
   - name: slack-warn
     slack_configs:
-      - channel: "#indigopay-warn"
+      - channel: "#stellar-indigopay-warn"
         send_resolved: true
         title: "⚠️ {{ .CommonLabels.alertname }}"
         text: "*{{ .CommonAnnotations.summary }}*\n{{ .CommonAnnotations.description }}"

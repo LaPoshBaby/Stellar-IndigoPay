@@ -9,7 +9,7 @@
 services:
   prometheus:
     image: prom/prometheus:v2.55.0
-    container_name: indigopay-prometheus
+    container_name: stellar-indigopay-prometheus
     restart: unless-stopped
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -28,7 +28,7 @@ services:
 
   grafana:
     image: grafana/grafana:11.2.0
-    container_name: indigopay-grafana
+    container_name: stellar-indigopay-grafana
     restart: unless-stopped
     environment:
       - GF_SECURITY_ADMIN_USER=admin
@@ -45,7 +45,7 @@ services:
 
   alertmanager:
     image: prom/alertmanager:v0.27.0
-    container_name: indigopay-alertmanager
+    container_name: stellar-indigopay-alertmanager
     restart: unless-stopped
     command:
       - "--config.file=/etc/alertmanager/alertmanager.yml"

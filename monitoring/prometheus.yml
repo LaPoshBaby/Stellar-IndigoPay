@@ -9,7 +9,7 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
   external_labels:
-    cluster: indigopay
+    cluster: stellar-indigopay
 
 rule_files:
   - /etc/prometheus/alert-rules.yml
@@ -20,7 +20,7 @@ alerting:
         - targets: ["alertmanager:9093"]
 
 scrape_configs:
-  - job_name: indigopay-backend
+  - job_name: stellar-indigopay-backend
     metrics_path: /metrics
     scrape_interval: 15s
     scrape_timeout: 10s

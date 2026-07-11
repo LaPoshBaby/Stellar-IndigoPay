@@ -10,14 +10,14 @@
 # monitoring/prometheus.yml's `rule_files:` block.)
 
 groups:
-  - name: indigopay-backend-availability
+  - name: stellar-indigopay-backend-availability
     interval: 30s
     rules:
       - alert: BackendDown
         # The readiness probe gauge is 0 when the deployment is fully down.
         # /api/readyz returns 503 and increments readiness_check_failed_total.
         expr: |
-          sum by (reason) (increase(readiness_check_failed_total{job="indigopay-backend"}[5m])) > 5
+          sum by (reason) (increase(readiness_check_failed_total{job="stellar-indigopay-backend"}[5m])) > 5
         for: 1m
         labels:
           severity: page

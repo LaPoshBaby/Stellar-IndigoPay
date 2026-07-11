@@ -23,7 +23,7 @@ route:
 receivers:
   - name: default
     email_configs:
-      - to: alerts@indigopay.app
+      - to: alerts@stellarindigopay.app
         send_resolved: true
   - name: pagerduty
     pagerduty_configs:
@@ -32,5 +32,5 @@ receivers:
   - name: slack-warn
     slack_configs:
       - api_url: ${SLACK_WEBHOOK_URL}
-        channel: "#indigopay-warn"
+        channel: "#stellar-indigopay-warn"
         send_resolved: true
