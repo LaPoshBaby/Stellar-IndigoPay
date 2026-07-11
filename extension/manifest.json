@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "IndigoPay Companion",
+  "name": "Stellar-IndigoPay Companion",
   "version": "1.0.1",
-  "description": "Support your favorite sustainable projects with a single click.",
+  "description": "Support verified climate projects on Stellar with a single click — 100% on-chain, zero fees.",
   "action": {
     "default_popup": "popup.html",
-    "default_title": "IndigoPay Companion"
+    "default_title": "Stellar-IndigoPay"
   },
   "permissions": [
     "storage",
