@@ -43,7 +43,7 @@ jobs:
         run: cargo clippy --workspace -- -D warnings
 
       - name: Run tests
-        run: cargo test --workspace
+        run: cargo test --workspace --features testutils
 
       - name: Build WASM
         run: cargo build --workspace --target wasm32v1-none --release
