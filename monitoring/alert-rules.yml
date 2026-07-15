@@ -55,6 +55,19 @@ groups:
         annotations:
           summary: "Postgres p99 query latency above 500ms for 10m on op={{ $labels.operation }}"
 
+  - name: stellar-indigopay-backend-backup
+    interval: 30s
+    rules:
+      - alert: BackupVerificationFailed
+        expr: indigopay_backup_verification_passed == 0
+        for: 0m
+        labels:
+          severity: page
+          routing: pagerduty
+        annotations:
+          summary: "Database backup verification failed"
+          description: "The nightly backup at {{ $labels.backup_path }} failed verification. Investigate immediately — the backup may be corrupt or unrecoverable."
+
   - name: stellar-indigopay-backend-readiness
     interval: 30s
     rules:
