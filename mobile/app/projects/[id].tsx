@@ -21,6 +21,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   Animated,
+  Share,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
@@ -171,6 +172,17 @@ export default function ProjectDetailScreen() {
     setToast({ message, variant });
   };
 
+  const handleShare = async () => {
+    if (!project) return;
+    try {
+      await Share.share({
+        message: `Check out this project: ${project.name} on Stellar IndigoPay!`,
+      });
+    } catch (error) {
+      console.error("Error sharing project:", error);
+    }
+  };
+
   const initializeNotifications = async () => {
     try {
       const token = await getPushToken();
@@ -296,15 +308,29 @@ export default function ProjectDetailScreen() {
       <ScrollView style={styles.container}>
         {/* Header */}
         <View style={[styles.header, { backgroundColor: colors.primary }]}>
-          <Text style={[styles.category, { color: colors.headerText }]}>
-            {project.category}
-          </Text>
-          <Text style={[styles.name, { color: colors.headerText }]}>
-            {project.name}
-          </Text>
-          <Text style={[styles.location, { color: colors.headerText }]}>
-            📍 {project.location}
-          </Text>
+          <View style={styles.headerRow}>
+            <View style={styles.headerTextGroup}>
+              <Text style={[styles.category, { color: colors.headerText }]}>
+                {project.category}
+              </Text>
+              <Text style={[styles.name, { color: colors.headerText }]}>
+                {project.name}
+              </Text>
+              <Text style={[styles.location, { color: colors.headerText }]}>
+                📍 {project.location}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.shareButton}
+              onPress={handleShare}
+              accessibilityRole="button"
+              accessibilityLabel={`Share ${project.name}`}
+            >
+              <Text style={[styles.shareIcon, { color: colors.headerText }]}>
+                📤
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Stats */}
@@ -432,6 +458,8 @@ export default function ProjectDetailScreen() {
             { backgroundColor: colors.buttonBackground },
           ]}
           onPress={() => router.push(`/donate/${project.id}`)}
+          accessibilityRole="button"
+          accessibilityLabel={`Donate to ${project.name}`}
         >
           <Text style={[styles.donateButtonText, { color: colors.buttonText }]}>
             🌱 Donate Now

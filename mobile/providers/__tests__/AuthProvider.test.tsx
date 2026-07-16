@@ -75,6 +75,7 @@ beforeEach(() => {
   ssMock.remove.mockReset();
   authMock.authenticate.mockReset();
   appStateMock.addEventListener.mockReset();
+  appStateMock.addEventListener.mockReturnValue({ remove: jest.fn() });
 });
 
 function wrapper({ children }: { children: ReactNode }) {

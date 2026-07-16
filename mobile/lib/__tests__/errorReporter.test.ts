@@ -61,12 +61,18 @@ describe("errorReporter", () => {
 
   test("captureException returns false on backend non-2xx", async () => {
     fetchMock.mockResolvedValueOnce({ ok: false, status: 500 });
+    (sentryMock.captureException as jest.Mock).mockImplementationOnce(() => {
+      throw new Error("sentry down");
+    });
     const ok = await captureException(new Error("boom"));
     expect(ok).toBe(false);
   });
 
   test("captureException swallows network errors silently", async () => {
     fetchMock.mockRejectedValueOnce(new Error("network down"));
+    (sentryMock.captureException as jest.Mock).mockImplementationOnce(() => {
+      throw new Error("sentry down");
+    });
     const ok = await captureException(new Error("boom"));
     expect(ok).toBe(false);
   });
@@ -86,6 +92,9 @@ describe("errorReporter", () => {
           );
         }),
     );
+    (sentryMock.captureException as jest.Mock).mockImplementationOnce(() => {
+      throw new Error("sentry down");
+    });
 
     jest.useFakeTimers();
     try {
