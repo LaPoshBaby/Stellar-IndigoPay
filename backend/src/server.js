@@ -59,11 +59,8 @@ const {
 } = require("./services/webhookQueue");
 const { start: startPushQueue } = require("./services/pushQueue");
 const { startIndexer } = require("./services/indexerService");
-const {
-  start: startSorobanEvents,
-  stop: stopSorobanEvents,
-  getStatus: getSorobanEventStatus,
-} = require("./services/sorobanEventService");
+const { startReconciler, stopReconciler } = require("./services/indexerReconciler");
+const { startDLQWorker, stopDLQWorker } = require("./services/indexerDLQWorker");
 const lifecycle = require("./services/lifecycle");
 
 Sentry.init({
@@ -214,6 +211,7 @@ const routeMounts = [
   "impact",
   "notifications",
   "verification",
+  "oracle",
 ];
 
 for (const name of routeMounts) {
@@ -310,15 +308,16 @@ async function startServer() {
     ),
   );
 
-  // Start the Soroban RPC event subscription service (runs alongside Horizon
-  // SSE indexer to capture contract-only events). Pass `io` so the service
-  // can emit WebSocket events for real-time frontend updates.
-  startSorobanEvents(io).catch((err) =>
+  try {
+    const oracleService = require("./services/oracleService");
+    oracleService.start();
+    logger.info({ event: "oracle_scheduler_started" }, "Oracle service scheduler started");
+  } catch (err) {
     logger.error(
-      { event: "soroban_events_startup_error", err: err.message },
-      "Soroban event service failed to start",
-    ),
-  );
+      { event: "oracle_startup_error", err: err.message },
+      "Oracle service failed to start",
+    );
+  }
 
   // The Stellar Horizon stream in the indexer holds the event loop open.
   // Register a shutdown hook so the stream is closed cleanly on SIGTERM.
@@ -329,6 +328,20 @@ async function startServer() {
     } catch {
       // Indexer may already be stopped; swallow.
     }
+    try {
+      const oracleService = require("./services/oracleService");
+      if (typeof oracleService.stop === "function") oracleService.stop();
+    } catch {
+      // ignore
+    }
+  });
+
+  lifecycle.onShutdown(async () => {
+    await stopReconciler();
+  });
+
+  lifecycle.onShutdown(async () => {
+    await stopDLQWorker();
   });
 
   // Soroban event service: stop the polling loop and persist the cursor.
