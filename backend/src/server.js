@@ -36,7 +36,7 @@ const express = require("express");
 const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
 const csurf = require("csurf");
-const rateLimit = require("express-rate-limit");
+const { redisRateLimiter } = require("./middleware/rateLimiter");
 const http = require("http");
 const { Server } = require("socket.io");
 
@@ -146,14 +146,9 @@ app.use(...createCorsMiddleware(origins));
 
 // Rate limit AFTER CSRF so a flood of token requests doesn't get
 // rate-limited (CSRF failures need to be visible to the limiter logic).
-app.use(
-  rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: Number(process.env.RATE_LIMIT_MAX || 150),
-    standardHeaders: true,
-    legacyHeaders: false,
-  }),
-);
+// Uses Redis-backed sliding window per-endpoint rate limiter with
+// in-memory fallback when Redis is unavailable.
+app.use(redisRateLimiter);
 
 // Per-request HTTP metrics (BEFORE routes so it captures the full request).
 app.use(metricsMiddleware);
