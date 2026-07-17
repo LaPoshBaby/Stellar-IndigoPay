@@ -1980,6 +1980,8 @@ paths:
                 properties:
                   success:
                     type: boolean
+        "429":
+          $ref: "#/components/responses/RateLimitExceeded"
   /api/admin/sessions:
     get:
       tags: [Admin]
@@ -2025,6 +2027,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimitExceeded"
   /api/admin/me:
     get:
       tags: [Admin]
