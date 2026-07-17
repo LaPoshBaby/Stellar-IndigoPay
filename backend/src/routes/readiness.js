@@ -194,13 +194,14 @@ router.get("/", async (_req, res) => {
   try {
     const indexerService = require("../services/indexerService");
     const s = indexerService.getStatus();
-    const lagLedgers = Number(s.lagLedgers || 0);
-    const indexerStatus = lagLedgers > 50 ? "degraded" : s.isRunning ? "ok" : "degraded";
+    const lagLedgers = Number(s.lagLedgers ?? s.currentLag ?? 0);
+    const isRunning = Boolean(s.isRunning ?? s.running);
+    const indexerStatus = lagLedgers > 50 ? "degraded" : isRunning ? "ok" : "degraded";
     checks.indexer = {
       status: indexerStatus,
       lag_ledgers: lagLedgers,
-      stream_active: Boolean(s.isRunning),
-      last_processed_ledger: s.lastProcessedLedger,
+      stream_active: isRunning,
+      last_processed_ledger: s.lastProcessedLedger ?? s.last_processed_ledger ?? null,
       ...s,
     };
   } catch (err) {
