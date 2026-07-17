@@ -18,6 +18,7 @@ const {
 } = require("../validators/schemas");
 const { mapDonationRow } = require("../services/store");
 const { enqueueProfileUpdate } = require("../services/profileQueue");
+const { enqueueImpactRecalc } = require("../services/impactQueue");
 const { enqueuePushNotification } = require("../services/pushQueue");
 const { server } = require("../services/stellar");
 const { AppError } = require("../errors");
@@ -323,6 +324,14 @@ async function recordDonation(req, res, next) {
       );
     });
 
+    enqueueImpactRecalc({
+      donationId: recordedDonation.id,
+      projectId,
+      donorAddress,
+      amountXLM: parsedAmount,
+    }).catch((err) => {
+      logger.error({ event: "impact_enqueue_failed", err: err.message, donorAddress, projectId }, "Failed to enqueue impact recalculation job");
+    });
     enqueuePushNotification({
       type: "donation_receipt",
       payload: {
