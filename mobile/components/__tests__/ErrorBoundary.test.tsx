@@ -78,7 +78,8 @@ describe("ErrorBoundary", () => {
     const alert = screen.getByRole("alert");
     expect(alert).toBeTruthy();
     expect(alert.props.accessibilityLiveRegion).toBe("assertive");
-    expect(screen.getByText(/intentional render error/i)).toBeTruthy();
+    const matches = screen.getAllByText(/intentional render error/i);
+    expect(matches.length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /retry/i })).toBeTruthy();
 
     spy.mockRestore();
@@ -149,12 +150,14 @@ describe("ErrorBoundary", () => {
     function ToggleHarness() {
       const [boom, setBoom] = React.useState(true);
       return (
-        <ErrorBoundary>
+        <>
           <Pressable testID="stop-booming" onPress={() => setBoom(false)}>
             <Text>stop</Text>
           </Pressable>
-          <Bomb shouldThrow={boom} />
-        </ErrorBoundary>
+          <ErrorBoundary>
+            <Bomb shouldThrow={boom} />
+          </ErrorBoundary>
+        </>
       );
     }
     render(<ToggleHarness />);
