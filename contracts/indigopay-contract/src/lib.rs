@@ -144,6 +144,35 @@ pub struct VoteProposal {
     pub resolved: bool,
 }
 
+/// An on-chain recurring donation subscription for a (donor, project_id)
+/// pair. Durable replacement for the browser-`localStorage`-only
+/// subscriptions previously managed by `frontend/lib/monthlyGiving.ts`.
+/// The donor still signs every `execute_subscription` call — Soroban has
+/// no native scheduler — but the interval and due date live on-chain
+/// instead of in a browser that could be closed, cleared, or never opened
+/// on the due date. See #81.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct Subscription {
+    pub donor: Address,
+    pub project_id: String,
+    pub amount: i128,
+    pub interval_ledgers: u32,
+    pub next_execution: u32,
+    pub active: bool,
+    pub created_at: u32,
+}
+
+/// One entry in the `AllSubscriptionKeys` registry — lets off-chain
+/// services (the cron worker, indexers) enumerate every subscription
+/// without external indexing. Mirrors the `ProjectIdsAll` pattern.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct SubscriptionKey {
+    pub donor: Address,
+    pub project_id: String,
+}
+
 /// Aggregated platform-wide counters returned by `get_global_stats`.
 ///
 /// Bundles the four values that the landing page hero section needs in a
@@ -214,9 +243,12 @@ pub enum DataKey {
     PendingAdmin,
     // Contract-level pause flag. When true, every state-mutating
     // function (donate, donate_usdc, mint_*, governance create/vote,
-    // project register/deactivate) rejects with "Contract is paused".
+    // project register/deactivate, create_subscription,
+    // execute_subscription) rejects with "Contract is paused".
     // `pause_contract` / `unpause_contract` are themselves exempt so
-    // the admin can always recover from a pause.
+    // the admin can always recover from a pause, and so is
+    // `cancel_subscription` — a donor must always be able to stop a
+    // recurring commitment even while the contract is paused.
     ContractPaused,
     // Pending contract upgrade — hash of the WASM that the admin has
     // proposed via `propose_upgrade` but not yet executed. Cleared on
@@ -230,6 +262,13 @@ pub enum DataKey {
     // returns. Used by indexers to confirm which WASM is currently
     // running at the contract address.
     LastExecutedUpgrade,
+    // Recurring donation subscription for a (donor, project_id) pair.
+    // See `create_subscription` / `cancel_subscription` / `execute_subscription`.
+    Subscription(Address, String),
+    // Registry of every (donor, project_id) pair that has ever had a
+    // subscription created — lets off-chain services enumerate
+    // subscriptions without external indexing. Mirrors `ProjectIdsAll`.
+    AllSubscriptionKeys,
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -257,6 +296,12 @@ const MAX_CO2_PER_XLM: u32 = 100_000;
 // (e.g. by exiting their positions or signalling objections via
 // off-chain channels) before the WASM is swapped.
 const UPGRADE_TIMELOCK_LEDGERS: u32 = 34_560;
+
+// 24 h × 3600 s ÷ 5 s per ledger = 17_280 ledgers — the minimum interval
+// `create_subscription` accepts between recurring donations. Per #81, this
+// stops a subscription from being configured to fire faster than the
+// backend cron worker's own 5-minute poll could reasonably notify a donor.
+const MIN_SUBSCRIPTION_INTERVAL_LEDGERS: u32 = 17_280;
 
 /// Read the stored admin. Caller must compare and panic on mismatch.
 /// Centralised so every admin check uses the same pattern.
@@ -1157,6 +1202,198 @@ impl IndigoPayContract {
             .instance()
             .get(&DataKey::VoterList(project_id))
             .unwrap_or(Vec::new(&env))
+    }
+
+    // ─── Recurring donations (#81) ───────────────────────────────────────────
+
+    /// Creates (or re-creates, after a prior cancellation) an on-chain
+    /// recurring donation subscription for `donor` → `project_id`.
+    ///
+    /// `interval_ledgers` must be at least `MIN_SUBSCRIPTION_INTERVAL_LEDGERS`
+    /// (~1 day). `next_execution` is set to `current_ledger + interval_ledgers`,
+    /// i.e. the first donation is due one full interval from now, not
+    /// immediately — call `donate` directly for an immediate first gift.
+    pub fn create_subscription(
+        env: Env,
+        donor: Address,
+        project_id: String,
+        amount: i128,
+        interval_ledgers: u32,
+    ) {
+        donor.require_auth();
+        require_not_paused(&env);
+
+        if amount <= 0 {
+            panic!("Subscription amount must be positive");
+        }
+        if interval_ledgers < MIN_SUBSCRIPTION_INTERVAL_LEDGERS {
+            panic!("Interval too short (min 1 day)");
+        }
+
+        let project: Project = env
+            .storage()
+            .instance()
+            .get(&DataKey::Project(project_id.clone()))
+            .expect("Project not found");
+        if !project.active {
+            panic!("Project is not accepting donations");
+        }
+
+        let key = DataKey::Subscription(donor.clone(), project_id.clone());
+        let existing: Option<Subscription> = env.storage().instance().get(&key);
+        if let Some(existing_sub) = existing {
+            if existing_sub.active {
+                panic!("Subscription already active for this project");
+            }
+        }
+
+        let now = env.ledger().sequence();
+        let next_execution = now
+            .checked_add(interval_ledgers)
+            .expect("next_execution overflow");
+
+        let subscription = Subscription {
+            donor: donor.clone(),
+            project_id: project_id.clone(),
+            amount,
+            interval_ledgers,
+            next_execution,
+            active: true,
+            created_at: now,
+        };
+        env.storage().instance().set(&key, &subscription);
+
+        // Track the key so off-chain services can enumerate every
+        // subscription without external indexing — same pattern as
+        // `ProjectIdsAll` / `VoterList`. Only append on a genuinely new
+        // (donor, project_id) pair; re-subscribing after a cancellation
+        // reuses the existing entry.
+        let mut keys: Vec<SubscriptionKey> = env
+            .storage()
+            .instance()
+            .get(&DataKey::AllSubscriptionKeys)
+            .unwrap_or(Vec::new(&env));
+        let already_tracked = keys
+            .iter()
+            .any(|k| k.donor == donor && k.project_id == project_id);
+        if !already_tracked {
+            keys.push_back(SubscriptionKey {
+                donor: donor.clone(),
+                project_id: project_id.clone(),
+            });
+            env.storage()
+                .instance()
+                .set(&DataKey::AllSubscriptionKeys, &keys);
+        }
+
+        env.events().publish(
+            (symbol_short!("sub_new"), donor),
+            (project_id, amount, interval_ledgers, next_execution),
+        );
+        env.storage()
+            .instance()
+            .extend_ttl(VOTING_WINDOW_LEDGERS * 4, VOTING_WINDOW_LEDGERS * 4);
+    }
+
+    /// Cancels an active subscription — sets `active = false` but keeps
+    /// the record, so `create_subscription` can detect and allow a clean
+    /// re-subscribe later and so the history stays queryable.
+    ///
+    /// Deliberately NOT gated by `require_not_paused`: a donor must
+    /// always be able to stop a recurring commitment, the same way
+    /// `pause_contract` / `unpause_contract` are themselves exempt so the
+    /// admin can always recover from a pause.
+    pub fn cancel_subscription(env: Env, donor: Address, project_id: String) {
+        donor.require_auth();
+
+        let key = DataKey::Subscription(donor.clone(), project_id.clone());
+        let mut subscription: Subscription = env
+            .storage()
+            .instance()
+            .get(&key)
+            .expect("Subscription not found");
+        if !subscription.active {
+            panic!("Subscription already cancelled");
+        }
+        subscription.active = false;
+        env.storage().instance().set(&key, &subscription);
+
+        env.events()
+            .publish((symbol_short!("sub_canc"), donor), project_id);
+    }
+
+    /// Returns the subscription for `(donor, project_id)`, active or not.
+    pub fn get_subscription(env: Env, donor: Address, project_id: String) -> Subscription {
+        env.storage()
+            .instance()
+            .get(&DataKey::Subscription(donor, project_id))
+            .expect("Subscription not found")
+    }
+
+    /// Enumerates every (donor, project_id) pair that has ever had a
+    /// subscription — including cancelled ones. Used by
+    /// `recurringDonationWorker.js` to know what to poll via
+    /// `get_subscription`; callers should check `.active` and
+    /// `.next_execution` themselves.
+    pub fn get_all_subscription_keys(env: Env) -> Vec<SubscriptionKey> {
+        env.storage()
+            .instance()
+            .get(&DataKey::AllSubscriptionKeys)
+            .unwrap_or(Vec::new(&env))
+    }
+
+    /// Executes a due subscription. The donor still signs this call —
+    /// Soroban has no native scheduler — but the backend worker
+    /// (`recurringDonationWorker.js`) watches `next_execution` across all
+    /// subscriptions via `get_all_subscription_keys` and notifies the
+    /// donor over WebSocket when one becomes due, so the donor doesn't
+    /// have to remember the date themselves.
+    ///
+    /// Delegates the actual transfer plus badge/NFT/CO2/global-stat
+    /// effects to `donate`, so a subscribed donation is indistinguishable
+    /// on-chain from a manual one — then advances `next_execution` by one
+    /// `interval_ledgers`.
+    pub fn execute_subscription(env: Env, token: Address, donor: Address, project_id: String, msg_hash: u32) {
+        donor.require_auth();
+        require_not_paused(&env);
+
+        let key = DataKey::Subscription(donor.clone(), project_id.clone());
+        let mut subscription: Subscription = env
+            .storage()
+            .instance()
+            .get(&key)
+            .expect("Subscription not found");
+
+        if !subscription.active {
+            panic!("Subscription is cancelled");
+        }
+        let now = env.ledger().sequence();
+        if now < subscription.next_execution {
+            panic!("Subscription is not yet due");
+        }
+
+        Self::donate(
+            env.clone(),
+            token,
+            donor.clone(),
+            project_id.clone(),
+            subscription.amount,
+            msg_hash,
+        );
+
+        subscription.next_execution = subscription
+            .next_execution
+            .checked_add(subscription.interval_ledgers)
+            .expect("next_execution overflow");
+        env.storage().instance().set(&key, &subscription);
+
+        env.events().publish(
+            (symbol_short!("sub_exec"), donor),
+            (project_id, subscription.amount, subscription.next_execution),
+        );
+        env.storage()
+            .instance()
+            .extend_ttl(VOTING_WINDOW_LEDGERS * 4, VOTING_WINDOW_LEDGERS * 4);
     }
 
     /// Donate USDC. Converts to XLM-equivalent for global stats using a price oracle stub.
@@ -2617,6 +2854,203 @@ mod tests {
         let pid = String::from_str(&env, "never-created");
         let list = client.get_voter_list(&pid);
         assert_eq!(list.len(), 0);
+    }
+
+    // ─── Recurring donation subscription tests (#81) ─────────────────────────
+
+    #[test]
+    fn test_create_subscription_stores_on_chain() {
+        let (env, _cid, client, _admin, pid) = setup();
+        let donor = Address::generate(&env);
+
+        client.create_subscription(&donor, &pid, &(10 * STROOP), &MIN_SUBSCRIPTION_INTERVAL_LEDGERS);
+
+        let sub = client.get_subscription(&donor, &pid);
+        assert_eq!(sub.donor, donor);
+        assert_eq!(sub.project_id, pid);
+        assert_eq!(sub.amount, 10 * STROOP);
+        assert_eq!(sub.interval_ledgers, MIN_SUBSCRIPTION_INTERVAL_LEDGERS);
+        assert!(sub.active);
+        assert_eq!(sub.next_execution, sub.created_at + MIN_SUBSCRIPTION_INTERVAL_LEDGERS);
+
+        let keys = client.get_all_subscription_keys();
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys.get(0).unwrap().donor, donor);
+        assert_eq!(keys.get(0).unwrap().project_id, pid);
+    }
+
+    #[test]
+    #[should_panic(expected = "Interval too short")]
+    fn test_create_subscription_rejects_short_interval() {
+        let (env, _cid, client, _admin, pid) = setup();
+        let donor = Address::generate(&env);
+
+        client.create_subscription(&donor, &pid, &(10 * STROOP), &(MIN_SUBSCRIPTION_INTERVAL_LEDGERS - 1));
+    }
+
+    #[test]
+    #[should_panic(expected = "Subscription amount must be positive")]
+    fn test_create_subscription_rejects_zero_amount() {
+        let (env, _cid, client, _admin, pid) = setup();
+        let donor = Address::generate(&env);
+
+        client.create_subscription(&donor, &pid, &0, &MIN_SUBSCRIPTION_INTERVAL_LEDGERS);
+    }
+
+    #[test]
+    #[should_panic(expected = "Project not found")]
+    fn test_create_subscription_rejects_unknown_project() {
+        let (env, _cid, client, _admin, _pid) = setup();
+        let donor = Address::generate(&env);
+        let unknown = String::from_str(&env, "no-such-project");
+
+        client.create_subscription(&donor, &unknown, &(10 * STROOP), &MIN_SUBSCRIPTION_INTERVAL_LEDGERS);
+    }
+
+    #[test]
+    #[should_panic(expected = "Subscription already active")]
+    fn test_create_subscription_rejects_duplicate_while_active() {
+        let (env, _cid, client, _admin, pid) = setup();
+        let donor = Address::generate(&env);
+
+        client.create_subscription(&donor, &pid, &(10 * STROOP), &MIN_SUBSCRIPTION_INTERVAL_LEDGERS);
+        client.create_subscription(&donor, &pid, &(20 * STROOP), &MIN_SUBSCRIPTION_INTERVAL_LEDGERS);
+    }
+
+    #[test]
+    fn test_cancel_subscription_sets_inactive_and_allows_resubscribe() {
+        let (env, _cid, client, _admin, pid) = setup();
+        let donor = Address::generate(&env);
+
+        client.create_subscription(&donor, &pid, &(10 * STROOP), &MIN_SUBSCRIPTION_INTERVAL_LEDGERS);
+        client.cancel_subscription(&donor, &pid);
+
+        let sub = client.get_subscription(&donor, &pid);
+        assert!(!sub.active);
+
+        // Re-subscribing after cancellation must succeed and must not add a
+        // second entry to the enumeration registry.
+        client.create_subscription(&donor, &pid, &(15 * STROOP), &MIN_SUBSCRIPTION_INTERVAL_LEDGERS);
+        let sub2 = client.get_subscription(&donor, &pid);
+        assert!(sub2.active);
+        assert_eq!(sub2.amount, 15 * STROOP);
+        assert_eq!(client.get_all_subscription_keys().len(), 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "Subscription already cancelled")]
+    fn test_cancel_subscription_twice_panics() {
+        let (env, _cid, client, _admin, pid) = setup();
+        let donor = Address::generate(&env);
+
+        client.create_subscription(&donor, &pid, &(10 * STROOP), &MIN_SUBSCRIPTION_INTERVAL_LEDGERS);
+        client.cancel_subscription(&donor, &pid);
+        client.cancel_subscription(&donor, &pid);
+    }
+
+    #[test]
+    #[should_panic(expected = "Subscription not found")]
+    fn test_get_subscription_unknown_panics() {
+        let (env, _cid, client, _admin, pid) = setup();
+        let donor = Address::generate(&env);
+
+        client.get_subscription(&donor, &pid);
+    }
+
+    #[test]
+    fn test_execute_subscription_transfers_and_advances_next_execution() {
+        let (env, _cid, client, _admin, pid) = setup();
+        let donor = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let token = env
+            .register_stellar_asset_contract_v2(token_admin)
+            .address();
+        StellarAssetClient::new(&env, &token).mint(&donor, &(100 * STROOP));
+
+        client.create_subscription(&donor, &pid, &(10 * STROOP), &MIN_SUBSCRIPTION_INTERVAL_LEDGERS);
+        let sub_before = client.get_subscription(&donor, &pid);
+
+        env.ledger().set_sequence_number(sub_before.next_execution);
+        client.execute_subscription(&token, &donor, &pid, &0u32);
+
+        // Effects match a normal `donate` call.
+        let p = client.get_project(&pid);
+        assert_eq!(p.total_raised, 10 * STROOP);
+        let stats = client.get_donor_stats(&donor);
+        assert_eq!(stats.total_donated, 10 * STROOP);
+
+        // Subscription rolled forward by exactly one interval.
+        let sub_after = client.get_subscription(&donor, &pid);
+        assert_eq!(
+            sub_after.next_execution,
+            sub_before.next_execution + MIN_SUBSCRIPTION_INTERVAL_LEDGERS
+        );
+        assert!(sub_after.active);
+    }
+
+    #[test]
+    #[should_panic(expected = "Subscription is not yet due")]
+    fn test_execute_subscription_rejects_before_due() {
+        let (env, _cid, client, _admin, pid) = setup();
+        let donor = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let token = env
+            .register_stellar_asset_contract_v2(token_admin)
+            .address();
+        StellarAssetClient::new(&env, &token).mint(&donor, &(100 * STROOP));
+
+        client.create_subscription(&donor, &pid, &(10 * STROOP), &MIN_SUBSCRIPTION_INTERVAL_LEDGERS);
+        // Still on the ledger the subscription was created at — not due yet.
+        client.execute_subscription(&token, &donor, &pid, &0u32);
+    }
+
+    #[test]
+    #[should_panic(expected = "Subscription is cancelled")]
+    fn test_execute_subscription_rejects_after_cancel() {
+        let (env, _cid, client, _admin, pid) = setup();
+        let donor = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let token = env
+            .register_stellar_asset_contract_v2(token_admin)
+            .address();
+        StellarAssetClient::new(&env, &token).mint(&donor, &(100 * STROOP));
+
+        client.create_subscription(&donor, &pid, &(10 * STROOP), &MIN_SUBSCRIPTION_INTERVAL_LEDGERS);
+        let sub = client.get_subscription(&donor, &pid);
+        client.cancel_subscription(&donor, &pid);
+
+        env.ledger().set_sequence_number(sub.next_execution);
+        client.execute_subscription(&token, &donor, &pid, &0u32);
+    }
+
+    #[test]
+    fn test_cancel_subscription_works_while_contract_paused() {
+        let (env, _cid, client, admin, pid) = setup();
+        let donor = Address::generate(&env);
+
+        client.create_subscription(&donor, &pid, &(10 * STROOP), &MIN_SUBSCRIPTION_INTERVAL_LEDGERS);
+        client.pause_contract(&admin);
+
+        // Must NOT panic — cancellation is exempt from the pause gate.
+        client.cancel_subscription(&donor, &pid);
+        let sub = client.get_subscription(&donor, &pid);
+        assert!(!sub.active);
+    }
+
+    #[test]
+    fn test_create_subscription_blocked_while_contract_paused() {
+        let (env, _cid, client, admin, pid) = setup();
+        let donor = Address::generate(&env);
+
+        client.pause_contract(&admin);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            client.create_subscription(&donor, &pid, &(10 * STROOP), &MIN_SUBSCRIPTION_INTERVAL_LEDGERS);
+        }));
+        assert!(
+            result.is_err(),
+            "create_subscription should be rejected while paused"
+        );
     }
 
     // ─── Bulk admin tests ──────────────────────────────────────────────────────
