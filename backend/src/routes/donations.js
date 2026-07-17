@@ -12,6 +12,7 @@ const pool = require("../db/pool");
 const { AppError } = require("../errors");
 const { createRateLimiter } = require("../middleware/rateLimiter");
 const { validate } = require("../middleware/validate");
+const idempotencyMiddleware = require("../middleware/idempotency");
 const {
   donationSchema,
   stellarAddress,
@@ -23,70 +24,11 @@ const { enqueuePushNotification } = require("../services/pushQueue");
 const { server } = require("../services/stellar");
 const donationLimiter = createRateLimiter(10, 1); // 10 requests per minute
 
-// ── Idempotency-Key helpers ──────────────────────────────────────────────────
+// Local EventEmitter used by both the POST /api/donations handler and the
+// GET /api/donations/stream SSE endpoint to broadcast new donations in
+// real time without going through Socket.IO.
+const donationEvents = new EventEmitter();
 
-/** UUID v4 pattern (case-insensitive) */
-const UUID_V4_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-/**
- * Validate that `key` is a non-empty UUID v4 string.
- * Throws a 400 error if the value is absent or malformed.
- *
- * @param {string|undefined} key
- */
-function validateIdempotencyKey(key) {
-  if (!key || !UUID_V4_RE.test(key)) {
-    const e = new Error(
-      "Idempotency-Key must be a valid UUID v4",
-    );
-    e.status = 400;
-    throw e;
-  }
-}
-
-/**
- * Look up a previously stored idempotency key.
- * Returns `{ status, body }` when found, or `null` when the key is new.
- *
- * @param {import('pg').PoolClient} client
- * @param {string} key
- * @returns {Promise<{status: number, body: object}|null>}
- */
-async function lookupIdempotencyKey(client, key) {
-  const result = await client.query(
-    `SELECT response_status, response_body
-       FROM idempotency_keys
-      WHERE key = $1
-        AND created_at > NOW() - INTERVAL '24 hours'`,
-    [key],
-  );
-  if (!result.rows[0]) return null;
-  return {
-    status: result.rows[0].response_status,
-    body: result.rows[0].response_body,
-  };
-}
-
-/**
- * Store the idempotency key alongside the response that was sent.
- * Uses INSERT … ON CONFLICT DO NOTHING so concurrent requests that
- * race to store the same key don't error — the first writer wins.
- *
- * @param {import('pg').PoolClient} client
- * @param {string}  key
- * @param {number}  status  HTTP status code (e.g. 201)
- * @param {object}  body    The response body object
- * @returns {Promise<void>}
- */
-async function storeIdempotencyKey(client, key, status, body) {
-  await client.query(
-    `INSERT INTO idempotency_keys (key, response_status, response_body)
-     VALUES ($1, $2, $3::jsonb)
-     ON CONFLICT (key) DO NOTHING`,
-    [key, status, JSON.stringify(body)],
-  );
-}
 
 // Local EventEmitter used by both the POST /api/donations handler and the
 // GET /api/donations/stream SSE endpoint to broadcast new donations in
@@ -144,18 +86,12 @@ async function recordDonation(req, res, next) {
       message,
       transactionHash,
     } = req.body;
-    validateKey(donorAddress);
-    validateTxHash(transactionHash);
 
-    client = await pool.connect();
-
-    // ── Idempotency replay ───────────────────────────────────────────────────
-    if (idempotencyKey !== null) {
-      const cached = await lookupIdempotencyKey(client, idempotencyKey);
-      if (cached) {
-        // Replay the original response verbatim (status + body).
-        return res.status(cached.status).json(cached.body);
-      }
+    if (!donorAddress || !/^G[A-Z0-9]{55}$/.test(donorAddress)) {
+      throw new AppError("INVALID_ADDRESS");
+    }
+    if (!transactionHash || !/^[a-fA-F0-9]{64}$/.test(transactionHash)) {
+      throw new AppError("INVALID_TX_HASH");
     }
 
     const projectResult = await client.query(
@@ -183,11 +119,12 @@ async function recordDonation(req, res, next) {
       "SELECT * FROM donations WHERE transaction_hash = $1",
       [transactionHash],
     );
-    if (existingResult.rows[0])
+    if (existingResult.rows[0]) {
       return res.json({
         success: true,
         data: mapDonationRow(existingResult.rows[0]),
       });
+    }
 
     // Verify the transaction is confirmed on-chain before recording it.
     // Prevents a caller from inflating raised_xlm with a fake or unconfirmed tx hash.
@@ -350,20 +287,6 @@ async function recordDonation(req, res, next) {
     donationEvents.emit("new_donation", mappedDonation);
 
     const responseBody = { success: true, data: mappedDonation };
-
-    // ── Persist idempotency key so retries get the cached response ───────────
-    if (idempotencyKey !== null) {
-      try {
-        await storeIdempotencyKey(client, idempotencyKey, 201, responseBody);
-      } catch (storeErr) {
-        // Non-fatal: if we can't persist the key we still return the donation.
-        (req.log || logger).warn(
-          { event: "idempotency_store_failed", err: storeErr.message, idempotencyKey },
-          "Failed to store idempotency key",
-        );
-      }
-    }
-
     res.status(201).json(responseBody);
   } catch (e) {
     if (inTransaction && client) await client.query("ROLLBACK");
@@ -383,7 +306,7 @@ async function recordDonation(req, res, next) {
  * @returns {Promise<void>} Sends the created donation payload.
  * @throws {Error} If rate limiting or donation creation fails.
  */
-router.post("/", donationLimiter, validate(donationSchema), recordDonation);
+router.post("/", donationLimiter, idempotencyMiddleware, validate(donationSchema), recordDonation);
 
 // GET /api/donations/stream
 router.get("/stream", (req, res) => {
