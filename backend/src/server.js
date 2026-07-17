@@ -69,6 +69,7 @@ const { start: startBlacklistCleanup } = require("./services/blacklistCleanup");
 const { startIndexer } = require("./services/indexerService");
 const { startReconciler, stopReconciler } = require("./services/indexerReconciler");
 const { startDLQWorker, stopDLQWorker } = require("./services/indexerDLQWorker");
+const { stop: stopSorobanEvents } = require("./services/sorobanEventService");
 const lifecycle = require("./services/lifecycle");
 const guardianService = require("./services/guardian");
 
