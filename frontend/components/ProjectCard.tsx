@@ -24,7 +24,7 @@ export default function ProjectCard({ project }: { project: ClimateProject }) {
   const isWishlisted = isInWishlist(project.id);
 
   return (
-    <div className="relative group">
+    <div className="relative group" data-testid="project-card">
       <Link href={`/projects/${project.id}`}>
         <div className="card-hover group animate-fade-in flex flex-col h-full relative overflow-hidden">
           {/* Category icon + badges */}

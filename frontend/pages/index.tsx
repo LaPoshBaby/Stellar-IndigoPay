@@ -3,6 +3,7 @@
  */
 import Link from "next/link";
 import Head from "next/head";
+import type { GetServerSideProps } from "next";
 import { useState, useRef, useEffect } from "react";
 import WalletConnect from "@/components/WalletConnect";
 import { useCountUp } from "@/hooks/useCountUp";
@@ -16,11 +17,6 @@ import { streamGlobalProjectDonations } from "@/lib/stellar";
 import { formatCO2, formatXLM, progressPercent } from "@/utils/format";
 import type { GlobalStats, CategoryStats } from "@/lib/api";
 import type { ClimateProject } from "@/utils/types";
-
-interface HomeProps {
-  publicKey: string | null;
-  onConnect: (pk: string) => void;
-}
 
 interface LiveDonationTickerItem {
   id: string;
@@ -109,7 +105,8 @@ function getCategoryIcon(category: string): string {
   return match ? match.icon : "📁";
 }
 
-export default function Home({ publicKey, onConnect }: HomeProps) {
+export default function Home() {
+  const [publicKey, setPublicKey] = useState<string | null>(null);
   const [showConnect, setShowConnect] = useState(false);
   const [globalStats, setGlobalStats] = useState<GlobalStats | null>(null);
   const [featuredProject, setFeaturedProject] = useState<ClimateProject | null>(
@@ -222,8 +219,10 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
             {publicKey ? (
               <>
                 <Link
+                  key="browse-projects-connected"
                   href="/projects"
                   className="btn-primary text-base px-8 py-3.5 gap-2"
+                  data-testid="browse-projects-link"
                 >
                   <svg
                     className="w-5 h-5"
@@ -241,8 +240,10 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
                   Browse Projects
                 </Link>
                 <Link
+                  key="my-impact"
                   href="/dashboard"
                   className="btn-secondary text-base px-8 py-3.5"
+                  data-testid="my-impact-link"
                 >
                   My Impact
                 </Link>
@@ -250,8 +251,10 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
             ) : (
               <>
                 <button
+                  key="start-donating"
                   onClick={() => setShowConnect(true)}
                   className="btn-primary text-base px-8 py-3.5 gap-2"
+                  data-testid="start-donating-button"
                 >
                   <svg
                     className="w-5 h-5"
@@ -269,8 +272,10 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
                   Start Donating
                 </button>
                 <Link
+                  key="browse-projects-disconnected"
                   href="/projects"
                   className="btn-secondary text-base px-8 py-3.5"
+                  data-testid="browse-projects-link"
                 >
                   Browse Projects
                 </Link>
@@ -424,7 +429,7 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
           <div className="w-full max-w-sm">
             <WalletConnect
               onConnect={(pk) => {
-                onConnect(pk);
+                setPublicKey(pk);
                 setShowConnect(false);
               }}
             />
@@ -636,3 +641,12 @@ function StatItem({ stat }: { stat: any }) {
     </div>
   );
 }
+
+// Forces per-request SSR. Without a data-fetching method, Next.js applies
+// Automatic Static Optimization and pre-renders this page with no request
+// context, so `_document.tsx` never sees the CSP nonce set by middleware.ts
+// and every <script> tag gets rendered without one — the browser then
+// blocks all of them under the nonce-based CSP and the page never hydrates.
+export const getServerSideProps: GetServerSideProps = async () => {
+  return { props: {} };
+};
