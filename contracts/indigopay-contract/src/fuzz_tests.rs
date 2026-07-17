@@ -389,7 +389,7 @@ mod fuzz {
         fn prop_deactivated_project_cannot_be_paused(
             _dummy in 0..1,
         ) {
-            let (env, admin, client, project_id) = setup_with_admin();
+            let (_env, admin, client, project_id) = setup_with_admin();
 
             client.deactivate_project(&admin, &project_id);
 
@@ -502,7 +502,7 @@ mod fuzz {
         fn prop_co2_rate_bounds_respected(
             new_rate in 1u32..=MAX_CO2_PER_XLM,
         ) {
-            let (env, admin, client, project_id) = setup_with_admin();
+            let (_env, admin, client, project_id) = setup_with_admin();
             client.update_project_co2_rate(&admin, &project_id, &new_rate);
             let project = client.get_project(&project_id);
             prop_assert_eq!(project.co2_per_xlm, new_rate);
@@ -512,7 +512,7 @@ mod fuzz {
         fn prop_zero_co2_rate_rejected(
             _dummy in 0..1,
         ) {
-            let (env, admin, client, project_id) = setup_with_admin();
+            let (_env, admin, client, project_id) = setup_with_admin();
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 client.update_project_co2_rate(&admin, &project_id, &0u32);
             }));
@@ -523,7 +523,7 @@ mod fuzz {
         fn prop_excessive_co2_rate_rejected(
             _dummy in 0..1,
         ) {
-            let (env, admin, client, project_id) = setup_with_admin();
+            let (_env, admin, client, project_id) = setup_with_admin();
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 client.update_project_co2_rate(&admin, &project_id, &(MAX_CO2_PER_XLM + 1));
             }));
@@ -667,7 +667,7 @@ mod fuzz {
         fn prop_veto_before_resolution(
             _dummy in 0..1,
         ) {
-            let (env, admin, client, project_id) = setup_with_admin();
+            let (_env, admin, client, project_id) = setup_with_admin();
             client.create_proposal(&admin, &project_id, &720u32);
             let proposal_before = client.get_proposal(&project_id);
             prop_assert!(!proposal_before.resolved);
@@ -681,7 +681,7 @@ mod fuzz {
         fn prop_proposal_default_duration(
             _dummy in 0..1,
         ) {
-            let (env, admin, client, project_id) = setup_with_admin();
+            let (_env, admin, client, project_id) = setup_with_admin();
             client.create_proposal(&admin, &project_id, &0u32);
             let proposal = client.get_proposal(&project_id);
             prop_assert!(!proposal.resolved);

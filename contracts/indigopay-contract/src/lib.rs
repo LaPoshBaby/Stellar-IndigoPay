@@ -1800,9 +1800,9 @@ impl OracleInterface for MockOracle {
 mod tests {
     extern crate std;
     use super::*;
-    use soroban_sdk::testutils::{Address as _, Events as _, Ledger as _};
+    use soroban_sdk::testutils::{Address as _, Ledger as _};
     use soroban_sdk::token::StellarAssetClient;
-    use soroban_sdk::{Address, BytesN, Env, String, Symbol, TryFromVal, Vec};
+    use soroban_sdk::{Address, BytesN, Env, String, Vec};
 
     // ─── Existing tests ───────────────────────────────────────────────────────
 
@@ -2008,7 +2008,7 @@ mod tests {
         projects.push_back(ProjectInit {
             id: pid,
             name: String::from_str(&env, "Duplicate"),
-            wallet: wallet,
+            wallet,
             co2_per_xlm: 50,
         });
 
@@ -2600,7 +2600,7 @@ mod tests {
 
     #[test]
     fn test_pause_project_sets_paused_flag() {
-        let (env, _cid, client, admin, pid) = setup();
+        let (_env, _cid, client, admin, pid) = setup();
         client.pause_project(&admin, &pid);
         let p = client.get_project(&pid);
         assert!(p.paused);
@@ -2618,7 +2618,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Cannot pause a deactivated project")]
     fn test_pause_deactivated_project_fails() {
-        let (env, _cid, client, admin, pid) = setup();
+        let (_env, _cid, client, admin, pid) = setup();
         client.deactivate_project(&admin, &pid);
         client.pause_project(&admin, &pid);
     }
@@ -2633,7 +2633,7 @@ mod tests {
 
     #[test]
     fn test_resume_project_clears_paused_flag() {
-        let (env, _cid, client, admin, pid) = setup();
+        let (_env, _cid, client, admin, pid) = setup();
         client.pause_project(&admin, &pid);
         client.resume_project(&admin, &pid);
         let p = client.get_project(&pid);
@@ -2735,12 +2735,12 @@ mod tests {
         assert_eq!(client.get_donation_count(), 1);
     }
 
-    /// Note: total_raised overflow protection is already exercised by
-    /// `fuzz_tests::donation_of_i128_max_panics` and `sequential_donations_panic_when_sum_exceeds_i128_max`,
-    /// and the CO₂ `checked_mul` guard inside `donate` is unreachable
-    /// from any valid `amount <= i128::MAX` (since
-    /// `xlm_units * MAX_CO2_PER_XLM <= 9.22e16 < i128::MAX`), so no
-    /// redundant overflow tests are kept here.
+    // Note: total_raised overflow protection is already exercised by
+    // `fuzz_tests::donation_of_i128_max_panics` and `sequential_donations_panic_when_sum_exceeds_i128_max`,
+    // and the CO₂ `checked_mul` guard inside `donate` is unreachable
+    // from any valid `amount <= i128::MAX` (since
+    // `xlm_units * MAX_CO2_PER_XLM <= 9.22e16 < i128::MAX`), so no
+    // redundant overflow tests are kept here.
 
     /// Replaying the same donor must NOT inflate `project.donor_count` —
     /// it counts unique donors.
