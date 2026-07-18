@@ -511,6 +511,257 @@
         }
       ],
       "fieldConfig": { "defaults": { "unit": "decmbytes" } }
+    },
+    {
+      "type": "row",
+      "title": "SLO Error Budget",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 72 },
+      "collapsed": false,
+      "id": 50,
+      "panels": []
+    },
+    {
+      "type": "gauge",
+      "title": "Donations error budget remaining",
+      "id": 51,
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 73 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "clamp_min(clamp_max(slo:donations:error_budget_remaining_pct, 100), 0)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "green", "value": 99.5 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"] },
+        "showThresholdLabels": true,
+        "showThresholdMarkers": true
+      },
+      "description": "Remaining error budget for the donation recording SLO (target 99.5%). Green = healthy, yellow = warning, red = budget exhausted."
+    },
+    {
+      "type": "gauge",
+      "title": "Projects error budget remaining",
+      "id": 52,
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 73 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "clamp_min(clamp_max(slo:projects:error_budget_remaining_pct, 100), 0)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "green", "value": 99.9 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"] },
+        "showThresholdLabels": true,
+        "showThresholdMarkers": true
+      },
+      "description": "Remaining error budget for the project listing SLO (target 99.9%). Green = healthy, yellow = warning, red = budget exhausted."
+    },
+    {
+      "type": "stat",
+      "title": "Donation error ratio (1m)",
+      "id": 53,
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 73 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "slo:donations:error_ratio",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.005 },
+              { "color": "orange", "value": 0.03 },
+              { "color": "red", "value": 0.072 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"] }
+      },
+      "description": "Current 1-minute error ratio for POST /api/donations. Thresholds: yellow = budget consumption (0.5%), orange = 5%/6h alert, red = 2%/1h alert."
+    },
+    {
+      "type": "stat",
+      "title": "Project error ratio (1m)",
+      "id": 54,
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 73 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "slo:projects:error_ratio",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.001 },
+              { "color": "orange", "value": 0.006 },
+              { "color": "red", "value": 0.0144 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"] }
+      },
+      "description": "Current 1-minute error ratio for GET /api/projects. Thresholds: yellow = budget consumption (0.1%), orange = 5%/6h alert, red = 2%/1h alert."
+    },
+    {
+      "type": "timeseries",
+      "title": "Burn rate vs. time (donations)",
+      "id": 55,
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 81 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "slo:donations:error_ratio",
+          "legendFormat": "error ratio",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.005 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "description": "Donation recording error ratio over time. Alert thresholds: 28.8% = 2%/1h page, 30% = 5%/6h page, 10% = 10%/3d warn."
+    },
+    {
+      "type": "timeseries",
+      "title": "Burn rate vs. time (projects)",
+      "id": 56,
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 81 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "slo:projects:error_ratio",
+          "legendFormat": "error ratio",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.001 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "description": "Project listing error ratio over time. Alert thresholds: 1.44% = 2%/1h page, 0.6% = 5%/6h page, 0.1% = 10%/3d warn."
+    },
+    {
+      "type": "table",
+      "title": "Top 5xx routes (last 5m)",
+      "id": 57,
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 91 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "topk(50, sum by (route, status_code) (rate(http_requests_total{status_code=~\"5..\"}[5m])))",
+          "legendFormat": "{{route}} ({{status_code}})",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "align": "auto",
+            "displayMode": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Value" },
+            "properties": [
+              { "id": "displayName", "value": "Error rate (req/s)" },
+              { "id": "unit", "value": "reqps" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "route" },
+            "properties": [
+              { "id": "displayName", "value": "Route" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "status_code" },
+            "properties": [
+              { "id": "displayName", "value": "Status" }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Error rate (req/s)", "desc": true }]
+      },
+      "description": "Top 50 routes returning 5xx errors in the last 5 minutes, sorted by error rate. Use this to quickly identify which endpoints are contributing to error budget burn.\n\nNote: Prometheus is a time-series database, not a log store. This table shows aggregated error rates per route, not individual request events."
     }
   ],
   "refresh": "30s",
