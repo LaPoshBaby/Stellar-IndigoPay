@@ -2,6 +2,14 @@
 
 ### Features
 
+* **backend:** distributed rate limiting with consistent hashing for multi-node deployments (closes #251)
+  - New `backend/src/services/consistentHash.js` — consistent hashing ring (150 virtual nodes, MD5 hashing, O(log V) binary-search lookups)
+  - Updated `backend/src/services/redis.js` — multi-Redis connection pool with `REDIS_URLS` support and single-instance fallback
+  - Updated `backend/src/middleware/rateLimiter.js` — routes rate-limit keys through sharded Redis clients with per-shard Prometheus metrics (`indigopay_ratelimit_shard_requests_total`, `indigopay_ratelimit_shard_keys`)
+  - New `REDIS_URLS` env var (comma-separated) with validation in `backend/src/config/env.js`
+  - Documented in `docs/api.md` under "Distributed Rate Limiting"
+  - 12+ consistent hashing unit tests, 5+ sharded Redis unit tests, and sharding integration tests
+
 * **frontend,backend:** real-time transparency dashboard with SLO, business metrics, and donation geo-map (closes #253)
   - New public dashboard page at `/transparency` with platform health banner, impact stat cards, live donation map, and recent donations feed
   - Health banner polls `/api/readyz` every 30s displaying operational/degraded/outage status with expandable detail rows
