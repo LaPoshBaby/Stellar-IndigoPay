@@ -26,6 +26,7 @@ import { useRecordDonation } from "@/hooks/queries";
 import useOnlineStatus from "@/hooks/useOnlineStatus";
 import { queueDonation, syncQueuedDonations } from "@/lib/offlineDonationQueue";
 import { formatXLM, formatCO2 } from "@/utils/format";
+import { trackEvent } from "@/lib/analytics";
 import { safeRandomUUID } from "@/utils/uuid";
 import type { ClimateProject } from "@/utils/types";
 import type { DonorAsset, ConversionEstimate } from "@/lib/dex";
@@ -201,6 +202,16 @@ export default function DonateForm({
       return;
     }
 
+    trackEvent("donation_initiated", {
+      projectId: project.id,
+      currency: selectedAsset ? selectedAsset.code : currency,
+      amountXLM: selectedAsset
+        ? conversionEstimate?.estimatedXLM
+        : currency === "XLM"
+          ? amount
+          : undefined,
+    });
+
     try {
       if (isRecurring) {
         if (!CONTRACT_ID) {
@@ -300,6 +311,11 @@ export default function DonateForm({
         );
         if (signErr || !signedXDR) throw new Error(signErr || "Signing failed");
 
+        trackEvent("donation_signed", {
+          projectId: project.id,
+          amountXLM: amountNum.toString(),
+        });
+
         setStep("submitting");
         const result = await submitTransaction(signedXDR);
         setTxHash(result.hash);
@@ -328,46 +344,57 @@ export default function DonateForm({
           idempotencyKey,
         });
 
-        setStep("success");
-        onSuccess?.();
-      } else {
-        // Fallback to standard payment
-        setStep("building");
-        const asset =
-          currency === "USDC"
-            ? { code: "USDC", issuer: process.env.NEXT_PUBLIC_USDC_ISSUER }
-            : undefined;
-
-        if (currency === "USDC") {
-          if (!process.env.NEXT_PUBLIC_USDC_ISSUER)
-            throw new Error(
-              "USDC issuer not configured (NEXT_PUBLIC_USDC_ISSUER).",
-            );
-          if (trustlineMissing)
-            throw new Error(
-              "No USDC trustline on your account. Add a trustline to receive/send USDC.",
-            );
-        }
-
-        const tx = await buildDonationTransaction({
-          fromPublicKey: publicKey,
-          toPublicKey: project.walletAddress,
-          amount:
-            currency === "XLM" ? amountNum.toFixed(7) : amountNum.toFixed(2),
-          memo: `IndigoPay:${project.id.slice(0, 16)}`,
-          asset,
+        trackEvent("donation_confirmed", {
+          projectId: project.id,
+          amountXLM: amountNum.toString(),
         });
 
-        setStep("signing");
-        const { signedXDR, error: signErr } = await signTransactionWithWallet(
-          tx.toXDR(),
-        );
-        if (signErr || !signedXDR) throw new Error(signErr || "Signing failed");
+        setStep("success");
+        onSuccess?.();
+        return;
+      }
 
-        setStep("submitting");
-        const result = await submitTransaction(signedXDR);
-        setTxHash(result.hash);
+      // ── Standard Payment (XLM or USDC) ──────────────────────────────
+      setStep("building");
+      const asset =
+        currency === "USDC"
+          ? { code: "USDC", issuer: process.env.NEXT_PUBLIC_USDC_ISSUER }
+          : undefined;
 
+      if (currency === "USDC") {
+        if (!process.env.NEXT_PUBLIC_USDC_ISSUER)
+          throw new Error(
+            "USDC issuer not configured (NEXT_PUBLIC_USDC_ISSUER).",
+          );
+        if (trustlineMissing)
+          throw new Error(
+            "No USDC trustline on your account. Add a trustline to receive/send USDC.",
+          );
+      }
+
+      const tx = await buildDonationTransaction({
+        fromPublicKey: publicKey,
+        toPublicKey: project.walletAddress,
+        amount:
+          currency === "XLM" ? amountNum.toFixed(7) : amountNum.toFixed(2),
+        memo: `IndigoPay:${project.id.slice(0, 16)}`,
+        asset,
+      });
+
+      setStep("signing");
+      const { signedXDR, error: signErr } = await signTransactionWithWallet(
+        tx.toXDR(),
+      );
+      if (signErr || !signedXDR) throw new Error(signErr || "Signing failed");
+
+      trackEvent("donation_signed", {
+        projectId: project.id,
+        amountXLM: currency === "XLM" ? amountNum.toString() : undefined,
+      });
+
+      setStep("submitting");
+      const result = await submitTransaction(signedXDR);
+      setTxHash(result.hash);
         setStep("recording");
         await recordDonationMutation.mutateAsync({
           projectId: project.id,
@@ -379,9 +406,24 @@ export default function DonateForm({
           idempotencyKey,
         });
 
-        setStep("success");
-        onSuccess?.();
-      }
+      setStep("recording");
+      await recordDonation({
+        projectId: project.id,
+        donorAddress: publicKey,
+        amount: amountNum.toString(),
+        currency: currency,
+        message: message.trim() || undefined,
+        transactionHash: result.hash,
+        idempotencyKey,
+      });
+
+      trackEvent("donation_confirmed", {
+        projectId: project.id,
+        amountXLM: currency === "XLM" ? amountNum.toString() : undefined,
+      });
+
+      setStep("success");
+      onSuccess?.();
     } catch (err: unknown) {
       const fallbackError =
         err instanceof Error ? err.message : "An error occurred";

@@ -268,6 +268,7 @@ const routeMounts = [
   "notifications",
   "verification",
   "oracle",
+  "map",
   "matches",
 ];
 
