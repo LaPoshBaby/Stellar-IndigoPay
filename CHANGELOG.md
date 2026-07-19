@@ -10,15 +10,21 @@
 
 ### Features
 
-- **backend:** event-sourced donation pipeline (closes #247)
-  - Append-only `donation_events` event store (migration 026) is the single source of truth for donations; the app connects with INSERT/SELECT only so the log is immutable.
-  - `projectionEngine.js` maintains four idempotent materialised views (`projection_donor_leaderboard`, `projection_project_stats`, `projection_donor_history`, `projection_global_stats`) from the event stream.
-  - `sorobanEventService.handleDonated()` appends each `donated` event then applies it to all projections in one transaction; read endpoints (leaderboard, stats, donation history) now serve from the projections.
-  - `POST /api/admin/projections/rebuild` (and `/rebuild/:name`) rebuilds any projection deterministically by replaying `donation_events`; the legacy `indexerReconciler` remains as a safety net.
-  - Prometheus metrics: `indigopay_projection_events_processed_total`, `indigopay_projection_lag_events`, `indigopay_projection_rebuild_duration_seconds`, `indigopay_projection_rebuild_last_events`, `indigopay_projection_rebuild_in_progress`.
-  - Unit (21), integration (testcontainers), regression (legacy-vs-projection parity), and performance (100k-event rebuild < 30s) test suites added.
+* **contracts:** add a multi-source TWAP price oracle with freshness protection (closes #281)
+  - Authorised reporters submit timestamped positive prices to a 20-entry circular buffer
+  - `get_price` averages the newest 10 observations and preserves the IndigoPay oracle interface
+  - Prices older than 720 ledgers use an admin-configured fallback or fail clearly when none exists
+  - Added reporter management, overflow protection, events, and comprehensive oracle tests
 
-- **monitoring:** multi-window SLO burn-rate alerting with error budget dashboard (closes #240)
+* **frontend:** implement advanced keyboard navigation, global keyboard shortcuts, route focus management, and skip links
+  - Add `frontend/hooks/useShortcuts.ts` — custom keyboard shortcuts hook with modifier checking and input field exclusion
+  - Add `frontend/components/GlobalSearchModal.tsx` — search overlay modal accessible via Cmd+K / Ctrl+K with full keyboard navigation (arrows, Enter, Escape) and focus trap
+  - Update `frontend/pages/_app.tsx` to handle page focus management, global shortcuts, and App Shell layout (SkipToContent + Navbar wrapper)
+  - Update `frontend/components/DonateForm.tsx` to support Space/Enter keys on donation amount preset buttons
+  - Update `frontend/components/LanguageSwitcher.tsx` to prevent propagation of the Escape key
+  - Add Jest unit tests for `useShortcuts` hook in `frontend/hooks/__tests__/useShortcuts.test.ts`
+
+* **monitoring:** multi-window SLO burn-rate alerting with error budget dashboard (closes #240)
   - Defined SLOs: donation recording (99.5%) and project listing (99.9%) over 30-day rolling windows
   - Recording rules in `monitoring/recording-rules.yml` computing error ratios and budget remaining
   - Multi-window burn-rate alerts: 2% in 1h (page), 5% in 6h (page), 10% in 3d (warn) for both SLOs
