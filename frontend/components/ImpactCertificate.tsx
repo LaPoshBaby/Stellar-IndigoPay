@@ -141,37 +141,3 @@ export default function ImpactCertificate(props: {
     </div>
   );
 }
-          {projectsSupported.length === 0 ? (
-            <p className="text-sm text-[#475569] dark:text-[#94A3B8] font-body">
-              Your supported projects will appear here after your first
-              donation.
-            </p>
-          ) : (
-            <ul className="text-sm text-[#0F172A] dark:text-[#E2E8F0] font-body grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
-              {projectsSupported.slice(0, 8).map((p) => (
-                <li key={p.id} className="flex items-center gap-2">
-                  <span className="text-[#4F46E5] dark:text-[#818CF8]">•</span>
-                  <span className="font-semibold">{p.name}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {projectsSupported.length > 8 && (
-            <p className="text-xs text-[#475569] dark:text-[#94A3B8] mt-2 font-body">
-              +{projectsSupported.length - 8} more
-            </p>
-          )}
-        </div>
-
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mt-8 pt-6 border-t border-[rgba(99,102,241,0.08)] dark:border-[rgba(129,140,248,0.10)]">
-          <p className="text-xs text-[#64748B] dark:text-[#94A3B8] font-body">
-            Issued on {issuedDate}
-          </p>
-          <p className="text-xs text-[#64748B] dark:text-[#94A3B8] font-body">
-            Verified by on-chain donation history
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}

@@ -131,6 +131,7 @@ function ledgersToDays(ledgers: number): string {
 }
 
 export default function GovernancePage() {
+  const { t } = useI18n();
   const router = useRouter();
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [isBadgeHolder, setIsBadgeHolder] = useState(false);

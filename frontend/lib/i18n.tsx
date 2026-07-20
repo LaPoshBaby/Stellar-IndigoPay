@@ -27,16 +27,45 @@ interface I18nContextValue {
   ) => string;
 }
 
-const I18nContext = createContext<I18nContextValue>({
-  locale: "en",
-  setLocale: () => {},
-  t: (k) => k,
-  tPlural: (k) => k,
-});
-
 function get(obj: Record<string, any>, path: string): any {
   return path.split(".").reduce((acc: any, part) => acc?.[part], obj);
 }
+
+const defaultT = (
+  key: string,
+  params?: Record<string, string | number>
+): string => {
+  let message = get(en, key) ?? key;
+  if (typeof message !== "string") {
+    message = key;
+  }
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      message = message.replace(
+        new RegExp(`\\{\\{${k}\\}\\}|\\{${k}\\}`, "g"),
+        String(v)
+      );
+    }
+  }
+  return message;
+};
+
+const defaultTPlural = (
+  key: string,
+  count: number,
+  params?: Record<string, string | number>
+): string => {
+  const suffix = count === 1 ? "one" : "other";
+  const pluralKey = `${key}.${suffix}`;
+  return defaultT(pluralKey, { ...params, count });
+};
+
+const I18nContext = createContext<I18nContextValue>({
+  locale: "en",
+  setLocale: () => {},
+  t: defaultT,
+  tPlural: defaultTPlural,
+});
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocale] = useState<Locale>(() => {
