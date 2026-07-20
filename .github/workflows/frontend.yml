@@ -130,6 +130,13 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
         working-directory: frontend
+      - name: Build frontend for E2E
+        working-directory: frontend
+        run: npm run build
+        env:
+          NEXT_PUBLIC_STELLAR_NETWORK: testnet
+          NEXT_PUBLIC_HORIZON_URL: https://horizon-testnet.stellar.org
+          NEXT_PUBLIC_API_URL: http://localhost:4000
       - name: Run E2E tests
         working-directory: frontend
         run: npx playwright test
@@ -258,6 +265,13 @@ jobs:
         working-directory: frontend
         run: npx playwright install --with-deps chromium firefox webkit
 
+      - name: Build frontend for E2E
+        working-directory: frontend
+        run: npm run build
+        env:
+          NEXT_PUBLIC_STELLAR_NETWORK: testnet
+          NEXT_PUBLIC_HORIZON_URL: https://horizon-testnet.stellar.org
+          NEXT_PUBLIC_API_URL: http://localhost:4000
       - name: Run Playwright tests
         working-directory: frontend
         # Visual regression snapshots are OS/font-render dependent — skip in CI,
