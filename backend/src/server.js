@@ -63,6 +63,7 @@ const { start: startWebhookQueue,
   stop: stopWebhookQueue,
 } = require("./services/webhookQueue");
 const { start: startPushQueue } = require("./services/pushQueue");
+const { start: startImpactQueue } = require("./services/impactQueue");
 const { start: startIdempotencyCleanup } = require("./services/idempotencyCleanup");
 const { start: startBlacklistCleanup } = require("./services/blacklistCleanup");
 const { startCO2VerificationCron, stopCO2VerificationCron } = require("./services/co2Verifier");

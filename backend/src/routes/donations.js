@@ -21,6 +21,7 @@ const {
 const { mapDonationRow } = require("../services/store");
 const { invalidateCache } = require("../middleware/cache");
 const { enqueueProfileUpdate } = require("../services/profileQueue");
+const { enqueueImpactRecalc } = require("../services/impactQueue");
 const { enqueuePushNotification } = require("../services/pushQueue");
 const { server } = require("../services/stellar");
 const donationLimiter = createRateLimiter(10, 1); // 10 requests per minute
@@ -244,6 +245,14 @@ async function recordDonation(req, res, next) {
       );
     });
 
+    enqueueImpactRecalc({
+      donationId: recordedDonation.id,
+      projectId,
+      donorAddress,
+      amountXLM: parsedAmount,
+    }).catch((err) => {
+      logger.error({ event: "impact_enqueue_failed", err: err.message, donorAddress, projectId }, "Failed to enqueue impact recalculation job");
+    });
     enqueuePushNotification({
       type: "donation_receipt",
       payload: {
