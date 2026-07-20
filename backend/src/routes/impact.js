@@ -13,7 +13,6 @@
 const express = require("express");
 const router = express.Router();
 const pool = require("../db/pool");
-const cache = require("../services/cache");
 const redis = require("../services/redis");
 const { AppError } = require("../errors");
 const { cacheResponse } = require("../middleware/cache");
@@ -32,229 +31,156 @@ function treesEquivalentFromKg(kg) {
 }
 
 // GET /api/impact/project/:id
-router.get("/project/:id", cacheResponse(300, (req) => `cache:v1:impact:project:${req.params.id}`), async (req, res, next) => {
-  try {
+router.get(
+  "/project/:id",
+  cacheResponse(300, (req) => `cache:v1:impact:project:${req.params.id}`),
+  async (req, res, next) => {
+    try {
+      const projectResult = await pool.query(
+        `SELECT id, category, raised_xlm, co2_offset_kg FROM projects WHERE id = $1`,
+        [req.params.id],
+      );
+      if (!projectResult.rows[0]) throw new AppError("PROJECT_NOT_FOUND");
 
-    const projectResult = await pool.query(
-      `SELECT id, category, raised_xlm, co2_offset_kg
-       FROM projects
-       WHERE id = $1`,
-      [req.params.id],
-    );
-    if (!projectResult.rows[0]) throw new AppError("PROJECT_NOT_FOUND");
+      const aggResult = await pool.query(
+        `SELECT COALESCE(SUM(d.amount_xlm), 0) AS "totalDonationsXLM",
+                COUNT(DISTINCT d.donor_address)::int AS "donorCount"
+         FROM donations d
+         WHERE d.project_id = $1
+           AND (d.currency = 'XLM' OR d.currency IS NULL)`,
+        [req.params.id],
+      );
 
-    const aggResult = await pool.query(
-      `SELECT
-        COALESCE(SUM(d.amount_xlm), 0) AS "totalDonationsXLM",
-        COUNT(DISTINCT d.donor_address)::int AS "donorCount"
-       FROM donations d
-       WHERE d.project_id = $1
-         AND (d.currency = 'XLM' OR d.currency IS NULL)`,
-      [req.params.id],
-    );
+      const p = projectResult.rows[0];
+      const totalDonationsXLM = Number.parseFloat(aggResult.rows[0].totalDonationsXLM || "0");
+      const donorCount = aggResult.rows[0].donorCount || 0;
 
-    const p = projectResult.rows[0];
-    const totalDonationsXLM = Number.parseFloat(
-      aggResult.rows[0].totalDonationsXLM || "0",
-    );
-    const donorCount = aggResult.rows[0].donorCount || 0;
+      const raisedXlm = Number.parseFloat(p.raised_xlm?.toString() || "0");
+      const projectCo2OffsetKg = Number.parseFloat(p.co2_offset_kg?.toString() || "0");
+      const kgPerXlm = raisedXlm > 0 ? projectCo2OffsetKg / raisedXlm : 0;
+      const co2OffsetKg = Math.round(totalDonationsXLM * kgPerXlm);
 
-    const raisedXlm = Number.parseFloat(p.raised_xlm?.toString() || "0");
-    const projectCo2OffsetKg = Number.parseFloat(
-      p.co2_offset_kg?.toString() || "0",
-    );
-    const kgPerXlm = raisedXlm > 0 ? projectCo2OffsetKg / raisedXlm : 0;
-    const co2OffsetKg = Math.round(totalDonationsXLM * kgPerXlm);
-
-    res.json({
-      success: true,
-      data: {
-        totalDonationsXLM: totalDonationsXLM.toFixed(7),
-        donorCount,
-        co2OffsetKg,
-        treesEquivalent: treesEquivalentFromKg(co2OffsetKg),
-        uniqueCountries: 0,
-      },
-    });
-  } catch (e) {
-    next(e);
-  }
-});
+      res.json({
+        success: true,
+        data: {
+          totalDonationsXLM: totalDonationsXLM.toFixed(7),
+          donorCount,
+          co2OffsetKg,
+          treesEquivalent: treesEquivalentFromKg(co2OffsetKg),
+          uniqueCountries: 0,
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 // GET /api/impact/global
-router.get("/global", cacheResponse(300, () => "cache:v1:impact:global"), async (req, res, next) => {
-  try {
+router.get(
+  "/global",
+  cacheResponse(300, () => "cache:v1:impact:global"),
+  async (req, res, next) => {
+    try {
+      const totalsResult = await pool.query(
+        `SELECT COALESCE(SUM(d.amount_xlm), 0) AS "totalDonationsXLM",
+                COUNT(DISTINCT d.donor_address)::int AS "donorCount",
+                COALESCE(
+                  SUM(
+                    CASE
+                      WHEN p.raised_xlm > 0 THEN (d.amount_xlm * (p.co2_offset_kg::numeric / p.raised_xlm))
+                      ELSE 0
+                    END
+                  ),
+                  0
+                ) AS "co2OffsetKg"
+         FROM donations d
+         JOIN projects p ON p.id = d.project_id
+         WHERE (d.currency = 'XLM' OR d.currency IS NULL)`,
+      );
 
-    const totalsResult = await pool.query(
-      `SELECT
-        COALESCE(SUM(d.amount_xlm), 0) AS "totalDonationsXLM",
-        COUNT(DISTINCT d.donor_address)::int AS "donorCount",
-        COALESCE(
-          SUM(
-            CASE
-              WHEN p.raised_xlm > 0 THEN (d.amount_xlm * (p.co2_offset_kg::numeric / p.raised_xlm))
-              ELSE 0
-            END
-          ),
-          0
-        ) AS "co2OffsetKg"
-       FROM donations d
-       JOIN projects p ON p.id = d.project_id
-       WHERE (d.currency = 'XLM' OR d.currency IS NULL)`,
-    );
+      const row = totalsResult.rows[0] || {};
+      const totalDonatedXLM = Number.parseFloat(row.totalDonationsXLM || "0");
+      const donorCount = row.donorCount || 0;
+      const co2OffsetKg = Math.round(Number.parseFloat(row.co2OffsetKg || "0"));
 
-    const breakdownResult = await pool.query(
-      `SELECT
-        p.category AS category,
-        COALESCE(SUM(d.amount_xlm), 0) AS "totalDonationsXLM",
-        COUNT(DISTINCT d.donor_address)::int AS "donorCount",
-        COALESCE(
-          SUM(
-            CASE
-              WHEN p.raised_xlm > 0 THEN (d.amount_xlm * (p.co2_offset_kg::numeric / p.raised_xlm))
-              ELSE 0
-            END
-          ),
-          0
-        ) AS "co2OffsetKg"
-       FROM donations d
-       JOIN projects p ON p.id = d.project_id
-       WHERE (d.currency = 'XLM' OR d.currency IS NULL)
-       GROUP BY p.category
-       ORDER BY "totalDonationsXLM" DESC, p.category ASC`,
-    );
-
-    const totalsRow = totalsResult.rows[0] || {};
-    const totalDonationsXLM = Number.parseFloat(
-      totalsRow.totalDonationsXLM || "0",
-    );
-    const donorCount = totalsRow.donorCount || 0;
-    const co2OffsetKg = Math.round(
-      Number.parseFloat(totalsRow.co2OffsetKg || "0"),
-    );
-
-    const breakdownByCategory = breakdownResult.rows.map((row) => ({
-      category: row.category,
-      totalDonationsXLM: Number.parseFloat(
-        row.totalDonationsXLM || "0",
-      ).toFixed(7),
-      donorCount: row.donorCount || 0,
-      co2OffsetKg: Math.round(Number.parseFloat(row.co2OffsetKg || "0")),
-    }));
-
-    res.json({
-      success: true,
-      data: {
-        totalDonatedXLM: totalDonatedXLM.toFixed(7),
-        donorCount: row.total_donors || 0,
-        co2OffsetKg,
-        treesEquivalent: treesEquivalentFromKg(co2OffsetKg),
-        uniqueCountries: 0,
-        totalDonations: row.total_donations || 0,
-        totalProjects: row.total_projects || 0,
-        totalDonors: row.total_donors || 0,
-        totalTrees,
-      },
-    };
-    await redis.set(cacheKey, payload, 300);
-    return res.json(payload);
-  } catch (e) {
-    next(e);
-  }
-});
+      res.json({
+        success: true,
+        data: {
+          totalDonatedXLM: totalDonatedXLM.toFixed(7),
+          donorCount,
+          co2OffsetKg,
+          treesEquivalent: treesEquivalentFromKg(co2OffsetKg),
+          uniqueCountries: 0,
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 // GET /api/impact/donor/:publicKey
-router.get("/donor/:publicKey", cacheResponse(300, (req) => `cache:v1:impact:donor:${req.params.publicKey}`), async (req, res, next) => {
-  try {
-    validateKey(req.params.publicKey);
-    const cacheKey = `impact:donor:${req.params.publicKey}`;
-    const cached = await redis.get(cacheKey);
-    if (cached) return res.json(cached);
+router.get(
+  "/donor/:publicKey",
+  cacheResponse(300, (req) => `cache:v1:impact:donor:${req.params.publicKey}`),
+  async (req, res, next) => {
+    try {
+      validateKey(req.params.publicKey);
 
-    const result = await pool.query(`
-      SELECT total_donated_xlm, total_co2_kg, total_trees, projects_supported, badge_tier
-      FROM donor_impact
-      WHERE wallet_address = $1`
-    , [req.params.publicKey]);
-    const row = result.rows[0] || {};
-    const totalDonatedXLM = Number.parseFloat(row.total_donated_xlm || "0");
-    const co2OffsetKg = Math.round(Number.parseFloat(row.total_co2_kg || "0"));
-    const totalTrees = Math.round(Number.parseFloat(row.total_trees || "0"));
-    const payload = {
-      success: true,
-      data: {
-        totalDonatedXLM: totalDonatedXLM.toFixed(7),
-        donorCount: null, // not stored per donor
-        co2OffsetKg,
-        treesEquivalent: treesEquivalentFromKg(co2OffsetKg),
-        uniqueCountries: 0,
-        projectsSupported: row.projects_supported || 0,
-        badgeTier: row.badge_tier || null,
-      },
-    };
-    await redis.set(cacheKey, payload, 300);
-    return res.json(payload);
-  } catch (e) {
-    next(e);
-  }
-});
+      const totalsResult = await pool.query(
+        `SELECT COALESCE(SUM(d.amount_xlm), 0) AS "totalDonatedXLM",
+                COUNT(DISTINCT d.project_id)::int AS "projectsSupported",
+                COALESCE(
+                  SUM(
+                    CASE
+                      WHEN p.raised_xlm > 0 THEN (d.amount_xlm * (p.co2_offset_kg::numeric / p.raised_xlm))
+                      ELSE 0
+                    END
+                  ),
+                  0
+                ) AS "co2OffsetKg"
+         FROM donations d
+         JOIN projects p ON p.id = d.project_id
+         WHERE d.donor_address = $1
+           AND (d.currency = 'XLM' OR d.currency IS NULL)`,
+        [req.params.publicKey],
+      );
 
+      const topCategoryResult = await pool.query(
+        `SELECT p.category AS category,
+                COALESCE(SUM(d.amount_xlm), 0) AS total
+         FROM donations d
+         JOIN projects p ON p.id = d.project_id
+         WHERE d.donor_address = $1
+           AND (d.currency = 'XLM' OR d.currency IS NULL)
+         GROUP BY p.category
+         ORDER BY total DESC
+         LIMIT 1`,
+        [req.params.publicKey],
+      );
 
-<<<<<<< HEAD
-    const totalsResult = await pool.query(
-      `SELECT
-        COALESCE(SUM(d.amount_xlm), 0) AS "totalDonatedXLM",
-        COUNT(DISTINCT d.project_id)::int AS "projectsSupported",
-        COALESCE(
-          SUM(
-            CASE
-              WHEN p.raised_xlm > 0 THEN (d.amount_xlm * (p.co2_offset_kg::numeric / p.raised_xlm))
-              ELSE 0
-            END
-          ),
-          0
-        ) AS "co2OffsetKg"
-       FROM donations d
-       JOIN projects p ON p.id = d.project_id
-       WHERE d.donor_address = $1
-         AND (d.currency = 'XLM' OR d.currency IS NULL)`,
-      [req.params.publicKey],
-    );
+      const row = totalsResult.rows[0] || {};
+      const totalDonatedXLM = Number.parseFloat(row.totalDonatedXLM || "0");
+      const projectsSupported = row.projectsSupported || 0;
+      const co2OffsetKg = Math.round(Number.parseFloat(row.co2OffsetKg || "0"));
+      const topCategory = topCategoryResult.rows[0]?.category || null;
 
-    const topCategoryResult = await pool.query(
-      `SELECT
-        p.category AS category,
-        COALESCE(SUM(d.amount_xlm), 0) AS total
-       FROM donations d
-       JOIN projects p ON p.id = d.project_id
-       WHERE d.donor_address = $1
-         AND (d.currency = 'XLM' OR d.currency IS NULL)
-       GROUP BY p.category
-       ORDER BY total DESC
-       LIMIT 1`,
-      [req.params.publicKey],
-    );
-
-    const row = totalsResult.rows[0] || {};
-    const totalDonatedXLM = Number.parseFloat(row.totalDonatedXLM || "0");
-    const projectsSupported = row.projectsSupported || 0;
-    const co2OffsetKg = Math.round(Number.parseFloat(row.co2OffsetKg || "0"));
-    const topCategory = topCategoryResult.rows[0]?.category || null;
-
-    res.json({
-      success: true,
-      data: {
-        totalDonatedXLM: totalDonatedXLM.toFixed(7),
-        co2OffsetKg,
-        projectsSupported,
-        topCategory,
-      },
-    });
-  } catch (e) {
-    next(e);
-  }
-});
-=======
->>>>>>> 287e5d1 (fix lint errors)
+      res.json({
+        success: true,
+        data: {
+          totalDonatedXLM: totalDonatedXLM.toFixed(7),
+          co2OffsetKg,
+          projectsSupported,
+          topCategory,
+          treesEquivalent: treesEquivalentFromKg(co2OffsetKg),
+          uniqueCountries: 0,
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 module.exports = router;
