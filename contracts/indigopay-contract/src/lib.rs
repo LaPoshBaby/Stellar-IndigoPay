@@ -4,6 +4,9 @@
 // TODO(indigopay-272): migrate to #[contractevent] pattern.
 #![allow(deprecated)]
 
+#[cfg(feature = "donation")]
+pub mod donation;
+
 /**
  * contracts/indigopay-contract/src/lib.rs
  *
