@@ -1610,11 +1610,7 @@ impl IndigoPayContract {
         ensure_min_ttl(&env, VOTING_WINDOW_LEDGERS * 4);
     }
 
-    pub fn batch_donate(
-        env: Env,
-        token: Address,
-        donations: Vec<BatchDonation>,
-    ) {
+    pub fn batch_donate(env: Env, token: Address, donations: Vec<BatchDonation>) {
         require_not_paused(&env);
 
         // ── Auth check: verify each unique donor once, before processing
@@ -1624,7 +1620,7 @@ impl IndigoPayContract {
         for donation in donations.iter() {
             let mut already_verified = false;
             for verified in verified_donors.iter() {
-                if verified == &donation.donor {
+                if verified == donation.donor {
                     already_verified = true;
                     break;
                 }
