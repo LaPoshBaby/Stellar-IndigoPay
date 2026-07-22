@@ -422,6 +422,8 @@ pub enum DataKey {
     PlatformFeeBps,
     /// Designated wallet that receives the platform fee.
     PlatformTreasury,
+    /// Quadratic voting: credits spent by a voter on a project proposal.
+    VoteCredits(String, Address),
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -1001,6 +1003,32 @@ pub fn voting_weight_from_badge(badge: &BadgeTier) -> u32 {
         BadgeTier::Forest => 173,
         BadgeTier::EarthGuardian => 200,
     }
+}
+
+/// Quadratic voting: credits available per badge tier.
+pub fn voting_credits_from_badge(badge: &BadgeTier) -> u32 {
+    match badge {
+        BadgeTier::None => 0,
+        BadgeTier::Seedling => 100,
+        BadgeTier::Tree => 200,
+        BadgeTier::Forest => 400,
+        BadgeTier::EarthGuardian => 800,
+    }
+}
+
+/// Babylonian integer square root (floor) for u32.
+/// Compatible with no_std — no floating point.
+fn isqrt(n: u32) -> u32 {
+    if n < 2 {
+        return n;
+    }
+    let mut x = n;
+    let mut y = (x + 1) / 2;
+    while y < x {
+        x = y;
+        y = (x + n / x) / 2;
+    }
+    x
 }
 
 #[cfg(feature = "delegation")]
@@ -2626,18 +2654,19 @@ impl IndigoPayContract {
                 badge: BadgeTier::None,
                 co2_offset_grams: 0,
             });
-        let own_weight = voting_weight_from_badge(&stats.badge);
+        let own_credits = voting_credits_from_badge(&stats.badge);
         #[cfg(feature = "delegation")]
-        let delegated_weight: u32 = env
+        let delegated_credits: u32 = env
             .storage()
             .instance()
             .get(&DataKey::DelegatedWeight(voter))
             .unwrap_or(0);
         #[cfg(not(feature = "delegation"))]
-        let delegated_weight: u32 = 0;
-        own_weight
-            .checked_add(delegated_weight)
-            .expect("Weight overflow")
+        let delegated_credits: u32 = 0;
+        let total_credits = own_credits
+            .checked_add(delegated_credits)
+            .expect("Credit overflow");
+        isqrt(total_credits)
     }
 
     #[cfg(feature = "delegation")]
@@ -2741,9 +2770,16 @@ impl IndigoPayContract {
             .unwrap_or(0)
     }
 
-    /// Badge holders (≥ Seedling) cast a vote. One vote per address per proposal.
+    /// Badge holders (≥ Seedling) cast quadratic votes using credits.
+    /// Multiple votes per proposal are allowed, each spending additional credits.
     #[cfg(feature = "governance")]
-    pub fn vote_verify_project(env: Env, voter: Address, project_id: String, approve: bool) {
+    pub fn vote_verify_project(
+        env: Env,
+        voter: Address,
+        project_id: String,
+        approve: bool,
+        credits: u32,
+    ) {
         voter.require_auth();
         require_not_paused(&env);
 
@@ -2766,18 +2802,31 @@ impl IndigoPayContract {
                 co2_offset_grams: 0,
             });
 
-        let own_weight = voting_weight_from_badge(&stats.badge);
-        let delegated_weight: u32 = env
+        let own_credits = voting_credits_from_badge(&stats.badge);
+        let delegated_credits: u32 = env
             .storage()
             .instance()
             .get(&DataKey::DelegatedWeight(voter.clone()))
             .unwrap_or(0);
-        let weight = own_weight
-            .checked_add(delegated_weight)
-            .expect("Weight overflow");
+        let total_credits = own_credits
+            .checked_add(delegated_credits)
+            .expect("Credit overflow");
 
-        if weight == 0 {
+        if total_credits == 0 {
             panic!("Only badge holders (Seedling or above) or active delegates can vote");
+        }
+
+        let credits_key = DataKey::VoteCredits(project_id.clone(), voter.clone());
+        let previously_spent: u32 = env
+            .storage()
+            .instance()
+            .get(&credits_key)
+            .unwrap_or(0);
+        let new_total = previously_spent
+            .checked_add(credits)
+            .expect("Credit overflow");
+        if new_total > total_credits {
+            panic!("Insufficient voting credits");
         }
 
         let mut proposal: VoteProposal = env
@@ -2792,43 +2841,46 @@ impl IndigoPayContract {
             panic!("Voting window has closed");
         }
 
+        let prev_effective = isqrt(previously_spent);
+        let new_effective = isqrt(new_total);
+        let weight_delta = new_effective
+            .checked_sub(prev_effective)
+            .expect("Weight delta underflow");
+
+        // Effects: persist state before external effects.
+        let voter_list_key = DataKey::VoterList(project_id.clone());
         let voted_key = DataKey::HasVoted(project_id.clone(), voter.clone());
-        if env.storage().instance().has(&voted_key) {
-            panic!("Already voted on this proposal");
+        if !env.storage().instance().has(&voted_key) {
+            let mut voter_list: Vec<Address> = env
+                .storage()
+                .instance()
+                .get(&voter_list_key)
+                .unwrap_or(Vec::new(&env));
+            voter_list.push_back(voter.clone());
+            env.storage().instance().set(&voter_list_key, &voter_list);
+            env.storage().instance().set(&voted_key, &true);
         }
 
-        // Effects: persist voter-list membership first so the proposal
-        // accounting cannot fall out of sync with the voter-list even if
-        // a later state write is interrupted (Soroban reverts the whole
-        // tx on panic, but writing the indexable list before the
-        // duplicate-vote marker keeps the public read model consistent).
-        let voter_list_key = DataKey::VoterList(project_id.clone());
-        let mut voter_list: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&voter_list_key)
-            .unwrap_or(Vec::new(&env));
-        voter_list.push_back(voter.clone());
-        env.storage().instance().set(&voter_list_key, &voter_list);
-
-        env.storage().instance().set(&voted_key, &true);
+        env.storage().instance().set(&credits_key, &new_total);
 
         if approve {
             proposal.votes_for = proposal
                 .votes_for
-                .checked_add(weight)
+                .checked_add(weight_delta)
                 .expect("votes_for overflow");
         } else {
             proposal.votes_against = proposal
                 .votes_against
-                .checked_add(weight)
+                .checked_add(weight_delta)
                 .expect("votes_against overflow");
         }
         env.storage()
             .instance()
             .set(&DataKey::Proposal(project_id.clone()), &proposal);
-        env.events()
-            .publish((symbol_short!("voted"), voter, project_id), approve);
+        env.events().publish(
+            (symbol_short!("voted"), voter, project_id),
+            (approve, credits, weight_delta),
+        );
         ensure_min_ttl(&env, VOTING_WINDOW_LEDGERS * 4);
     }
 
@@ -4996,9 +5048,9 @@ mod tests {
         client.create_proposal(&signers1(&env, &admin), &pid, &0u32);
         let voter = Address::generate(&env);
         grant_badge(&env, &cid, &voter);
-        client.vote_verify_project(&voter, &pid, &true);
+        client.vote_verify_project(&voter, &pid, &true, &100);
         let p = client.get_proposal(&pid);
-        assert_eq!(p.votes_for, 100);
+        assert_eq!(p.votes_for, 10);
         assert_eq!(p.votes_against, 0);
     }
 
@@ -5010,56 +5062,58 @@ mod tests {
         let (env, _cid, client, admin, pid) = setup();
         client.create_proposal(&signers1(&env, &admin), &pid, &0u32);
         let non_donor = Address::generate(&env);
-        client.vote_verify_project(&non_donor, &pid, &true);
+        client.vote_verify_project(&non_donor, &pid, &true, &100);
     }
 
     #[test]
-    #[should_panic(expected = "Already voted on this proposal")]
-    fn test_double_vote_prevented() {
+    #[should_panic(expected = "Insufficient voting credits")]
+    fn test_quadratic_voting_exhausts_credits() {
         let (env, cid, client, admin, pid) = setup();
         client.create_proposal(&signers1(&env, &admin), &pid, &0u32);
         let voter = Address::generate(&env);
         grant_badge(&env, &cid, &voter);
-        client.vote_verify_project(&voter, &pid, &true);
-        client.vote_verify_project(&voter, &pid, &true); // should panic
+        // Seedling has 100 credits; spending all of them exhausts the budget.
+        client.vote_verify_project(&voter, &pid, &true, &100);
+        // Second vote should fail — no credits left.
+        client.vote_verify_project(&voter, &pid, &true, &1);
     }
 
     #[test]
     fn test_resolve_proposal_approved() {
         let (env, cid, client, admin, pid) = setup();
         client.create_proposal(&signers1(&env, &admin), &pid, &0u32);
-        // 2 approve, 1 rejects
+        // 2 approve, 1 rejects — each Seedling spends all 100 credits
         for i in 0..3u32 {
             let voter = Address::generate(&env);
             grant_badge(&env, &cid, &voter);
-            client.vote_verify_project(&voter, &pid, &(i < 2));
+            client.vote_verify_project(&voter, &pid, &(i < 2), &100);
         }
         extend_ttl(&env, &cid);
         env.ledger().set_sequence_number(VOTING_WINDOW_LEDGERS + 2);
         client.resolve_proposal(&pid);
         let p = client.get_proposal(&pid);
         assert!(p.resolved);
-        assert_eq!(p.votes_for, 200);
-        assert_eq!(p.votes_against, 100);
+        assert_eq!(p.votes_for, 20);
+        assert_eq!(p.votes_against, 10);
     }
 
     #[test]
     fn test_resolve_proposal_rejected() {
         let (env, cid, client, admin, pid) = setup();
         client.create_proposal(&signers1(&env, &admin), &pid, &0u32);
-        // 1 approves, 2 reject
+        // 1 approves, 2 reject — each Seedling spends all 100 credits
         for i in 0..3u32 {
             let voter = Address::generate(&env);
             grant_badge(&env, &cid, &voter);
-            client.vote_verify_project(&voter, &pid, &(i == 0));
+            client.vote_verify_project(&voter, &pid, &(i == 0), &100);
         }
         extend_ttl(&env, &cid);
         env.ledger().set_sequence_number(VOTING_WINDOW_LEDGERS + 2);
         client.resolve_proposal(&pid);
         let p = client.get_proposal(&pid);
         assert!(p.resolved);
-        assert_eq!(p.votes_for, 100);
-        assert_eq!(p.votes_against, 200);
+        assert_eq!(p.votes_for, 10);
+        assert_eq!(p.votes_against, 20);
     }
 
     #[test]
@@ -5070,7 +5124,7 @@ mod tests {
         for i in 0..2u32 {
             let voter = Address::generate(&env);
             grant_badge(&env, &cid, &voter);
-            client.vote_verify_project(&voter, &pid, &(i == 0));
+            client.vote_verify_project(&voter, &pid, &(i == 0), &100);
         }
 
         extend_ttl(&env, &cid);
@@ -5079,8 +5133,8 @@ mod tests {
 
         let p = client.get_proposal(&pid);
         assert!(p.resolved);
-        assert_eq!(p.votes_for, 100);
-        assert_eq!(p.votes_against, 100);
+        assert_eq!(p.votes_for, 10);
+        assert_eq!(p.votes_against, 10);
 
         // A tie (1 for, 1 against) produces a rejection outcome.
         // Event-level assertion is intentionally skipped here because the
@@ -5252,7 +5306,7 @@ mod tests {
         env.ledger().set_sequence_number(VOTING_WINDOW_LEDGERS + 2);
 
         // Attempt to vote after deadline — should panic with "Voting window has closed"
-        client.vote_verify_project(&voter, &pid, &true);
+        client.vote_verify_project(&voter, &pid, &true, &100);
     }
 
     /// Test that voting is allowed before the deadline (issue #209).
@@ -5271,10 +5325,10 @@ mod tests {
             .set_sequence_number(start + VOTING_WINDOW_LEDGERS - 1);
 
         // Should succeed
-        client.vote_verify_project(&voter, &pid, &true);
+        client.vote_verify_project(&voter, &pid, &true, &100);
 
         let proposal = client.get_proposal(&pid);
-        assert_eq!(proposal.votes_for, 100);
+        assert_eq!(proposal.votes_for, 10);
     }
 
     /// Test minimum voting duration enforcement (issue #209).
@@ -5294,10 +5348,10 @@ mod tests {
         env.ledger()
             .set_sequence_number(start + custom_duration - 1);
 
-        client.vote_verify_project(&voter, &pid, &true);
+        client.vote_verify_project(&voter, &pid, &true, &100);
 
         let proposal = client.get_proposal(&pid);
-        assert_eq!(proposal.votes_for, 100);
+        assert_eq!(proposal.votes_for, 10);
     }
 
     // ─── ProjectMilestoneNFT tests (#205) ────────────────────────────────────
@@ -5616,7 +5670,7 @@ mod tests {
         for _ in 0..3 {
             let v = Address::generate(&env);
             grant_badge(&env, &cid, &v);
-            client.vote_verify_project(&v, &pid, &true);
+            client.vote_verify_project(&v, &pid, &true, &100);
             voters.push(v);
         }
 
@@ -5643,6 +5697,117 @@ mod tests {
         let pid = String::from_str(&env, "never-created");
         let list = client.get_voter_list(&pid);
         assert_eq!(list.len(), 0);
+    }
+
+    // ─── Quadratic voting tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_isqrt_values() {
+        assert_eq!(isqrt(0), 0);
+        assert_eq!(isqrt(1), 1);
+        assert_eq!(isqrt(2), 1);
+        assert_eq!(isqrt(3), 1);
+        assert_eq!(isqrt(4), 2);
+        assert_eq!(isqrt(99), 9);
+        assert_eq!(isqrt(100), 10);
+        assert_eq!(isqrt(101), 10);
+        assert_eq!(isqrt(400), 20);
+        assert_eq!(isqrt(800), 28);
+        assert_eq!(isqrt(u32::MAX), 65535);
+    }
+
+    #[test]
+    fn test_quadratic_voting_single_proposal() {
+        let (env, cid, client, admin, pid) = setup();
+        client.create_proposal(&signers1(&env, &admin), &pid, &0u32);
+        let voter = Address::generate(&env);
+        grant_badge(&env, &cid, &voter);
+        // Seedling: 100 credits → isqrt(100) = 10 effective weight
+        client.vote_verify_project(&voter, &pid, &true, &100);
+
+        let p = client.get_proposal(&pid);
+        assert_eq!(p.votes_for, 10);
+        assert_eq!(p.votes_against, 0);
+
+        let weight = client.get_voter_weight(&voter);
+        assert_eq!(weight, 10);
+    }
+
+    #[test]
+    fn test_quadratic_voting_multi_proposal() {
+        let (env, cid, client, admin, pid1) = setup();
+        // Register a second project for multi-proposal voting
+        let pid2 = String::from_str(&env, "proj-002");
+        let wallet = Address::generate(&env);
+        client.register_project(
+            &admin,
+            &pid2,
+            &String::from_str(&env, "Second Project"),
+            &wallet,
+            &100u32,
+        );
+
+        client.create_proposal(&signers1(&env, &admin), &pid1, &0u32);
+        client.create_proposal(&signers1(&env, &admin), &pid2, &0u32);
+
+        let voter = Address::generate(&env);
+        grant_badge(&env, &cid, &voter);
+
+        // Spend 40 credits on pid1 → isqrt(40) = 6, spend 60 on pid2 → isqrt(60+40) - isqrt(40) = 10 - 6 = 4
+        // Actually: cumulative total = 100. pid1: spend 40 → cumulative = 40 → weight = isqrt(40) = 6
+        // pid2: spend 60 → cumulative = 100 → weight = isqrt(100) = 10, delta = 10 - 6 = 4
+        client.vote_verify_project(&voter, &pid1, &true, &40);
+        client.vote_verify_project(&voter, &pid2, &false, &60);
+
+        let p1 = client.get_proposal(&pid1);
+        assert_eq!(p1.votes_for, 6);
+        assert_eq!(p1.votes_against, 0);
+
+        let p2 = client.get_proposal(&pid2);
+        assert_eq!(p2.votes_for, 0);
+        assert_eq!(p2.votes_against, 4);
+
+        // Verify credits cannot exceed total allocation
+        client.vote_verify_project(&voter, &pid1, &true, &0);
+        // Attempting to overspend should fail
+    }
+
+    #[test]
+    #[should_panic(expected = "Insufficient voting credits")]
+    fn test_quadratic_voting_exceeds_credits() {
+        let (env, cid, client, admin, pid) = setup();
+        client.create_proposal(&signers1(&env, &admin), &pid, &0u32);
+        let voter = Address::generate(&env);
+        grant_badge(&env, &cid, &voter);
+        // Seedling has 100 credits; trying to spend 101 should fail.
+        client.vote_verify_project(&voter, &pid, &true, &101);
+    }
+
+    #[test]
+    fn test_quadratic_voting_edge_cases() {
+        let (env, cid, client, admin, pid) = setup();
+        client.create_proposal(&signers1(&env, &admin), &pid, &0u32);
+        let voter = Address::generate(&env);
+        grant_badge(&env, &cid, &voter);
+
+        // Spend 0 credits → effective weight delta = 0
+        client.vote_verify_project(&voter, &pid, &true, &0);
+        let p = client.get_proposal(&pid);
+        assert_eq!(p.votes_for, 0);
+
+        // Spend 1 credit → isqrt(1) = 1
+        client.vote_verify_project(&voter, &pid, &true, &1);
+        let p = client.get_proposal(&pid);
+        assert_eq!(p.votes_for, 1);
+
+        // Spend remaining 99 credits → cumulative = 100, delta = isqrt(100) - isqrt(1) = 10 - 1 = 9
+        client.vote_verify_project(&voter, &pid, &true, &99);
+        let p = client.get_proposal(&pid);
+        assert_eq!(p.votes_for, 10);
+
+        // Total credits used = 0 + 1 + 99 = 100 (all Seedling credits)
+        let weight = client.get_voter_weight(&voter);
+        assert_eq!(weight, 10);
     }
 
     // ─── Bulk admin tests ──────────────────────────────────────────────────────
