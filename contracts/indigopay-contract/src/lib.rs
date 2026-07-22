@@ -281,6 +281,7 @@ pub struct VestingSchedule {
 /// reporting period and posts only the root on-chain. Individual donors can then
 /// prove their specific impact (trees planted, CO₂ sequestered, hectares restored)
 /// against that root without revealing other donors' data.
+#[cfg(feature = "impact")]
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub struct ImpactLeaf {
@@ -411,10 +412,6 @@ pub enum DataKey {
     PlatformFeeBps,
     /// Designated wallet that receives the platform fee.
     PlatformTreasury,
-    // On-chain Impact Certificates (#382)
-    /// Merkle root of project impact report.
-    /// Key: (project_id, report_id) → BytesN<32>.
-    ImpactMerkleRoot(String, String),
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -536,8 +533,17 @@ fn require_not_paused(env: &Env) {
     }
 }
 
+#[cfg(feature = "impact")]
+#[contracttype]
+#[derive(Clone, Debug)]
+enum ImpactKey {
+    /// Merkle root keyed by SHA-256(project_id || report_id).
+    ImRoot(BytesN<32>),
+}
+
 // ─── Merkle Proof Verification for Impact Certificates (#382) ──────────────
 
+#[cfg(feature = "impact")]
 /// Verify a Merkle proof against a known root using SHA-256.
 ///
 /// Walks up the Merkle tree from `leaf` through each sibling in `proof`,
@@ -573,6 +579,7 @@ fn verify_merkle_proof(
     hash == *root
 }
 
+#[cfg(feature = "impact")]
 /// Compute the leaf hash for an ImpactLeaf using deterministic XDR serialization
 /// followed by SHA-256. The off-chain Merkle tree builder MUST use the same
 /// serialization to produce the proof.
@@ -580,6 +587,21 @@ fn compute_impact_leaf_hash(env: &Env, leaf: &ImpactLeaf) -> BytesN<32> {
     use soroban_sdk::xdr::ToXdr;
     let xdr_bytes = leaf.to_xdr(env);
     env.crypto().sha256(&xdr_bytes).into()
+}
+
+#[cfg(feature = "impact")]
+/// Compute a deterministic 32-byte storage key from (project_id, report_id).
+/// Uses SHA-256 of each component separately then SHA-256 of the concatenation
+/// to prevent domain collisions (e.g., ("ab", "c") vs ("a", "bc")).
+fn impact_merkle_key(env: &Env, project_id: &String, report_id: &String) -> BytesN<32> {
+    let pid_hash = env.crypto().sha256(&project_id.clone().into());
+    let rid_hash = env.crypto().sha256(&report_id.clone().into());
+    let mut combined = [0u8; 64];
+    combined[..32].copy_from_slice(&pid_hash.to_array());
+    combined[32..].copy_from_slice(&rid_hash.to_array());
+    env.crypto()
+        .sha256(&Bytes::from_slice(env, &combined))
+        .into()
 }
 
 /// Read the configured platform fee in basis points.
@@ -1720,8 +1742,8 @@ impl IndigoPayContract {
         env.storage().instance().get(&DataKey::ZkVerificationKey)
     }
 
-    /// Query the stored impact Merkle root for a project's impact report.
-    /// Returns `None` if no root has been posted for this project/report pair.
+    #[cfg(feature = "impact")]
+    /// Get the Merkle root for a project impact report.
     pub fn get_impact_merkle_root(
         env: Env,
         project_id: String,
@@ -1729,7 +1751,11 @@ impl IndigoPayContract {
     ) -> Option<BytesN<32>> {
         env.storage()
             .instance()
-            .get(&DataKey::ImpactMerkleRoot(project_id, report_id))
+            .get(&ImpactKey::ImRoot(impact_merkle_key(
+                &env,
+                &project_id,
+                &report_id,
+            )))
     }
 
     /// Anonymous donation via zk-SNARK proof verification.
@@ -2019,6 +2045,7 @@ impl IndigoPayContract {
 
     // ─── On-chain Impact Certificates (#382) ────────────────────────────────
 
+    #[cfg(feature = "impact")]
     /// Admin-only: post a Merkle root for a project's impact report.
     ///
     /// The Merkle tree of all donor impacts for the reporting period
@@ -2053,7 +2080,7 @@ impl IndigoPayContract {
             .expect("Project not found");
 
         env.storage().instance().set(
-            &DataKey::ImpactMerkleRoot(project_id.clone(), report_id.clone()),
+            &ImpactKey::ImRoot(impact_merkle_key(&env, &project_id, &report_id)),
             &merkle_root,
         );
 
@@ -2064,6 +2091,7 @@ impl IndigoPayContract {
         ensure_min_ttl(&env, VOTING_WINDOW_LEDGERS * 4);
     }
 
+    #[cfg(feature = "impact")]
     /// Public read-only: verify a donor's impact claim against a stored Merkle root.
     ///
     /// Any caller (donor, auditor, third party) can invoke this function to
@@ -2093,7 +2121,7 @@ impl IndigoPayContract {
         proof: Vec<BytesN<32>>,
         leaf_index: u32,
     ) -> bool {
-        let key = DataKey::ImpactMerkleRoot(project_id, report_id);
+        let key = ImpactKey::ImRoot(impact_merkle_key(&env, &project_id, &report_id));
         let stored_root: Option<BytesN<32>> = env.storage().instance().get(&key);
         let stored_root = match stored_root {
             Some(r) => r,
@@ -7905,6 +7933,7 @@ mod tests {
 
     // ─── On-chain Impact Certificates (#382) ────────────────────────────────
 
+    #[cfg(feature = "impact")]
     /// Helper: compute the Merkle root for two leaves at indices 0 and 1.
     /// Used to build a known-good test root from ImpactLeaf values.
     fn build_two_leaf_root(env: &Env, leaf0: &ImpactLeaf, leaf1: &ImpactLeaf) -> BytesN<32> {
