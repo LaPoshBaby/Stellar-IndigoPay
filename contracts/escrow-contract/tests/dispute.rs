@@ -110,12 +110,18 @@ fn test_resolve_dispute_refund_client() {
         percentage: 50,
         released: false,
         disputed: false,
+        oracle: None,
+        verified: false,
+        proof_hash: None,
     });
     milestones.push_back(escrow_contract::Milestone {
         name: SorobanString::from_str(&env, "M2"),
         percentage: 50,
         released: false,
         disputed: false,
+        oracle: None,
+        verified: false,
+        proof_hash: None,
     });
 
     client.create_job(

@@ -24,11 +24,8 @@ pub struct Milestone {
     pub percentage: u32, // 0-100
     pub released: bool,
     pub disputed: bool,
-    #[cfg(feature = "oracle-escrow")]
     pub oracle: Option<Address>,
-    #[cfg(feature = "oracle-escrow")]
     pub verified: bool,
-    #[cfg(feature = "oracle-escrow")]
     pub proof_hash: Option<BytesN<32>>,
 }
 
@@ -699,18 +696,27 @@ mod tests {
             percentage: 50,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
         milestones.push_back(Milestone {
             name: String::from_str(&env, "Development"),
             percentage: 30,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
         milestones.push_back(Milestone {
             name: String::from_str(&env, "Testing"),
             percentage: 20,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
 
         client.create_job(
@@ -752,12 +758,18 @@ mod tests {
             percentage: 60,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
         milestones.push_back(Milestone {
             name: String::from_str(&env, "M2"),
             percentage: 40,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
 
         client.create_job(
@@ -803,6 +815,9 @@ mod tests {
             percentage: 100,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
 
         client.create_job(
@@ -835,12 +850,18 @@ mod tests {
             percentage: 50,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
         milestones.push_back(Milestone {
             name: String::from_str(&env, "M2"),
             percentage: 40,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
 
         client.create_job(
@@ -884,6 +905,9 @@ mod tests {
             percentage: 100,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
 
         client.create_job(
@@ -923,6 +947,9 @@ mod tests {
             percentage: 100,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
 
         client.create_job(
@@ -962,12 +989,18 @@ mod tests {
             percentage: 50,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
         milestones.push_back(Milestone {
             name: String::from_str(&env, "M2"),
             percentage: 50,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
 
         client.create_job(
@@ -1021,6 +1054,9 @@ mod tests {
             percentage: 100,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
 
         client.create_job(
@@ -1061,6 +1097,9 @@ mod tests {
             percentage: 100,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
 
         client.create_job(
@@ -1097,6 +1136,9 @@ mod tests {
             percentage: 100,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
 
         client.create_job(
@@ -1133,6 +1175,9 @@ mod tests {
             percentage: 100,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
 
         client.create_job(
@@ -1167,6 +1212,9 @@ mod tests {
             percentage: 100,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
 
         client.create_job(
@@ -1210,6 +1258,9 @@ mod tests {
             percentage: 100,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
 
         client.create_job(
@@ -1244,6 +1295,9 @@ mod tests {
             percentage: 100,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
 
         client.create_job(
@@ -1287,6 +1341,9 @@ mod tests {
             percentage: 100,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
 
         client.create_job(
@@ -1322,6 +1379,9 @@ mod tests {
             percentage: 100,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
 
         client.create_job(
@@ -1361,12 +1421,18 @@ mod tests {
             percentage: 50,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
         milestones.push_back(Milestone {
             name: String::from_str(&env, "M2"),
             percentage: 50,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
 
         client.create_job(
@@ -1407,6 +1473,9 @@ mod tests {
             percentage: 100,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
 
         let job_1 = String::from_str(&env, "job-enum-1");
@@ -1458,18 +1527,27 @@ mod tests {
             percentage: 30,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
         milestones.push_back(Milestone {
             name: String::from_str(&env, "M2-Implementation"),
             percentage: 40,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
         milestones.push_back(Milestone {
             name: String::from_str(&env, "M3-Deployment"),
             percentage: 30,
             released: false,
             disputed: false,
+            oracle: None,
+            verified: false,
+            proof_hash: None,
         });
 
         client.create_job(
