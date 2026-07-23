@@ -1,18 +1,23 @@
-/**
+﻿/**
  * components/DonationFeed.tsx
- * Recent donations for a project — live community feed with real-time SSE streaming.
+ * Recent donations for a project â€” live community feed with real-time SSE streaming.
  */
 import { useState, useEffect, useRef, useCallback } from "react";
 import { fetchProjectDonations } from "@/lib/api";
 import { formatXLM, timeAgo, shortenAddress } from "@/utils/format";
 import { explorerUrl, streamProjectPayments } from "@/lib/stellar";
 import type { Donation } from "@/utils/types";
+import { SkeletonList } from "./Skeleton";
 
 interface DonationFeedProps {
   projectId: string;
   walletAddress?: string;
   refreshKey?: number;
   onNewDonation?: (donation: Donation) => void;
+}
+
+export function DonationFeedSkeleton({ rows = 3 }: { rows?: number }) {
+  return <SkeletonList rows={rows} withAvatar={true} palette="indigo" />;
 }
 
 export default function DonationFeed({
@@ -117,22 +122,7 @@ export default function DonationFeed({
   };
 
   if (loading)
-    return (
-      <div className="space-y-3">
-        {[1, 2, 3].map((i) => (
-          <div
-            key={i}
-            className="animate-pulse flex gap-3 p-3 rounded-xl bg-[rgba(99,102,241,0.04)] dark:bg-[rgba(129,140,248,0.06)]"
-          >
-            <div className="w-8 h-8 rounded-full bg-[rgba(99,102,241,0.10)] dark:bg-[rgba(129,140,248,0.12)] flex-shrink-0" />
-            <div className="flex-1 space-y-2">
-              <div className="h-3 bg-[rgba(99,102,241,0.10)] dark:bg-[rgba(129,140,248,0.12)] rounded w-1/2" />
-              <div className="h-2 bg-[rgba(99,102,241,0.06)] dark:bg-[rgba(129,140,248,0.08)] rounded w-1/3" />
-            </div>
-          </div>
-        ))}
-      </div>
-    );
+    return <DonationFeedSkeleton />;
 
   if (donations.length === 0)
     return (
@@ -140,11 +130,11 @@ export default function DonationFeed({
         {walletAddress && (
           <div className="flex items-center gap-2 mb-3 text-xs text-[#4F46E5] dark:text-[#818CF8] font-body">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            Listening for live donations…
+            Listening for live donationsâ€¦
           </div>
         )}
         <p className="text-center text-[#475569] dark:text-[#94A3B8] text-sm py-6 font-body">
-          No donations yet — be the first! 🌱
+          No donations yet â€” be the first! ðŸŒ±
         </p>
       </div>
     );
@@ -153,10 +143,32 @@ export default function DonationFeed({
     <div className="space-y-2">
       {walletAddress && (
         <div className="flex items-center gap-2 mb-1 text-xs text-[#4F46E5] dark:text-[#818CF8] font-body">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          Live — new donations appear automatically
+          <span
+            className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"
+            aria-hidden="true"
+          />
+          Live â€” new donations appear automatically
         </div>
       )}
+      {/* Hidden aggregate live region so each new donation is announced. The
+          key changes when a new donation lands so the message is re-read even
+          when only a single live region is present. */}
+      <p
+        key={donations[0]?.id ?? "empty"}
+        className="sr-only"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {donations.length > 0
+          ? `${donations.length} donation${
+              donations.length === 1 ? "" : "s"
+            } shown; most recent ${
+              donations[0]?.currency === "USDC"
+                ? `${parseFloat(donations[0].amount || "0").toFixed(2)} USDC`
+                : formatXLM(donations[0]?.amountXLM || donations[0]?.amount || "0")
+            } from ${shortenAddress(donations[0]?.donorAddress || "")}.`
+          : ""}
+      </p>
       {donations.map((d) => (
         <div
           key={d.id}
@@ -166,13 +178,19 @@ export default function DonationFeed({
               : ""
           }`}
         >
-          <div className="w-9 h-9 rounded-full bg-[rgba(99,102,241,0.10)] dark:bg-[rgba(129,140,248,0.12)] flex items-center justify-center flex-shrink-0 text-base">
-            {newIds.has(d.id) ? "✨" : "🌱"}
+          <div
+            className="w-9 h-9 rounded-full bg-[rgba(99,102,241,0.10)] dark:bg-[rgba(129,140,248,0.12)] flex items-center justify-center flex-shrink-0 text-base"
+            aria-hidden="true"
+          >
+            {newIds.has(d.id) ? "âœ¨" : "ðŸŒ±"}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-semibold text-[#0F172A] dark:text-[#E2E8F0] text-sm font-body">
-                {shortenAddress(d.donorAddress, 5)}
+                {d.anonymous || !d.donorAddress
+                  ? "Anonymous"
+                  : shortenAddress(d.donorAddress, 5)}
+                {d.donorAddress ? shortenAddress(d.donorAddress, 5) : "Anonymous"}
               </span>
               <span className="font-mono font-bold text-[#4F46E5] dark:text-[#818CF8] text-sm">
                 {d.currency === "USDC"
@@ -205,7 +223,7 @@ export default function DonationFeed({
                 rel="noopener noreferrer"
                 className="text-xs text-[#4F46E5] dark:text-[#818CF8] hover:text-[#6366F1] transition-colors font-body"
               >
-                View tx ↗
+                View tx â†—
               </a>
             </div>
           </div>
@@ -239,3 +257,4 @@ export default function DonationFeed({
     </div>
   );
 }
+

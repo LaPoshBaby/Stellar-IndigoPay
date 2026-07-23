@@ -6,6 +6,8 @@ for everything in this directory. Pick the section that matches what you need.
 > **Just want to try the app?** Jump to **[Getting Started](getting-started.md)**
 > for a five-minute first run, or watch the **[Walkthrough](walkthrough.md)**
 > for a guided tour of the donor flow.
+>
+> 💬 **Join the community:** [Telegram](https://t.me/StellarIndigoPay)
 
 ---
 
@@ -46,7 +48,7 @@ for everything in this directory. Pick the section that matches what you need.
 | **[Database Schema](database.md)**               | Postgres tables, indexes, FK relationships, and the migration workflow.                                                                                |
 | **[Indexer](indexer.md)**                        | The Stellar Horizon stream → Postgres indexer, including shutdown wiring.                                                                              |
 | **[Performance & Load Testing](performance.md)** | p50 / p95 / p99 targets, k6 invocation, threshold semantics, and the baseline table.                                                                   |
-| **[CI / CD pipeline](../.github/workflows/)**    | Per-app workflows (`backend.yml`, `frontend.yml`, `extension.yml`, `mobile.yml`, `contracts.yml`), release, SBOM, image scanning, and secret-scanning. |
+| **[CI / CD pipeline](../.github/workflows/)**    | Per-app workflows (`frontend.yml`, `extension.yml`, `mobile.yml`, `contracts.yml`), main CI (backend, helm, gitleaks, OpenAPI lint, ZAP), release, SBOM, and image scanning. |
 
 ### Smart contracts
 
@@ -122,6 +124,7 @@ for everything in this directory. Pick the section that matches what you need.
 | **[Code of Conduct](../CODE_OF_CONDUCT.md)   | Community expectations.                                                                                                                          |
 | **[Security Policy](../SECURITY.md)**        | How to report a vulnerability.                                                                                                                   |
 | **[Changelog](../CHANGELOG.md)**             | Keep-a-Changelog-format release notes.                                                                                                           |
+| **[Telegram Community](https://t.me/StellarIndigoPay)** | Chat with contributors, ask questions, and share ideas.                                                                           |
 
 ---
 

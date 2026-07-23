@@ -24,11 +24,6 @@ mod fuzz {
     /// still fit in an i128 without overflowing.
     const MAX_DONATION: i128 = 1_000_000_000 * 10_000_000; // 10^16
 
-    /// 1 XLM expressed in stroops. USDC fuzz tests multiply donations by
-    /// the 8x oracle rate and divide by this constant to get the
-    /// XLM-equivalent units that drive the CO₂ `checked_mul` path.
-    const FUZZ_STROOP: i128 = 10_000_000;
-
     /// Stable msg-hash placeholder for `donate` / `donate_usdc` calls.
     const MSG_HASH: u32 = 42;
 
@@ -51,7 +46,7 @@ mod fuzz {
         let client = IndigoPayContractClient::new(&env, &cid);
 
         let admin = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&soroban_sdk::vec![&env, admin.clone()], &1u32);
 
         let project_id = SorobanString::from_str(&env, "proj-usdc-fuzz");
         let wallet = Address::generate(&env);
@@ -95,7 +90,7 @@ mod fuzz {
         let client = IndigoPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&soroban_sdk::vec![&env, admin.clone()], &1u32);
 
         let project_id = SorobanString::from_str(&env, "proj-fuzz-1");
         let wallet = Address::generate(&env);
@@ -270,7 +265,7 @@ mod fuzz {
         fn prop_usdc_amount_near_max(usdc_amount in (i128::MAX / 8 + 1)..=i128::MAX) {
             let (env, client, project_id, usdc_token) = setup_usdc(100u32);
             let donor = Address::generate(&env);
-            fund_usdc(&env, &usdc_token, &donor, &usdc_amount);
+            fund_usdc(&env, &usdc_token, &donor, usdc_amount);
 
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 client.donate_usdc(&usdc_token, &donor, &project_id, &usdc_amount, &MSG_HASH);
@@ -302,7 +297,7 @@ mod fuzz {
             let cid = env.register_contract(None, IndigoPayContract);
             let client = IndigoPayContractClient::new(&env, &cid);
             let admin = Address::generate(&env);
-            client.initialize(&admin);
+            client.initialize(&soroban_sdk::vec![&env, admin.clone()], &1u32);
 
             let project_id = SorobanString::from_str(&env, "proj-inactive");
             let wallet = Address::generate(&env);
@@ -321,7 +316,7 @@ mod fuzz {
             client.deactivate_project(&admin, &project_id);
 
             let donor = Address::generate(&env);
-            fund_usdc(&env, &usdc_token, &donor, &amount);
+            fund_usdc(&env, &usdc_token, &donor, amount);
 
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 client.donate_usdc(&usdc_token, &donor, &project_id, &amount, &MSG_HASH);
@@ -329,25 +324,23 @@ mod fuzz {
             prop_assert!(result.is_err(), "donate_usdc should panic when project is inactive");
         }
 
-        /// CO₂ overflow when a project has a high `co2_per_xlm` multiplied by
-        /// a large XLM-equivalent amount.  The `checked_mul` inside
-        /// `donate_usdc` must panic before any state mutation.
+        // CO2 overflow is now prevented at registration time by the
+        // `co2_per_xlm <= MAX_CO2_PER_XLM` check. This test instead
+        // verifies the boundary: at the maximum allowed CO₂ rate,
+        // donations still succeed and produce correct offset values.
         #[test]
-        fn prop_usdc_co2_overflow(
-            usdc_amount in {
-                let min = (i128::MAX / (u32::MAX as i128)) * FUZZ_STROOP / 8 + 1;
-                let max = i128::MAX / 8;
-                min..=max
-            },
+        fn prop_usdc_max_co2_rate_boundary(
+            usdc_amount in 1i128..=100_000_000i128,
         ) {
-            let (env, client, project_id, usdc_token) = setup_usdc(u32::MAX);
+            let (env, client, project_id, usdc_token) = setup_usdc(100_000);
             let donor = Address::generate(&env);
-            fund_usdc(&env, &usdc_token, &donor, &usdc_amount);
+            fund_usdc(&env, &usdc_token, &donor, usdc_amount);
 
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                client.donate_usdc(&usdc_token, &donor, &project_id, &usdc_amount, &MSG_HASH);
-            }));
-            prop_assert!(result.is_err(), "donate_usdc should panic on CO2 overflow");
+            client.donate_usdc(&usdc_token, &donor, &project_id, &usdc_amount, &MSG_HASH);
+
+            let donor_stats = client.get_donor_stats(&donor);
+            prop_assert!(donor_stats.co2_offset_grams > 0, "CO₂ offset should be non-zero at max rate");
+            prop_assert_eq!(donor_stats.donation_count, 1);
         }
     }
 }

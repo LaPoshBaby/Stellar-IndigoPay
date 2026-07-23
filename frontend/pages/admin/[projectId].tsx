@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
+import { useWallet } from "@/lib/WalletProvider";
 import { useRouter } from "next/router";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -16,16 +17,12 @@ import {
 import { buildMilestoneTransaction, submitTransaction } from "@/lib/stellar";
 import { formatCO2, formatXLM, shortenAddress, timeAgo } from "@/utils/format";
 import type { ClimateProject, Donation } from "@/utils/types";
+import { SkeletonBox, SkeletonStatCard } from "@/components/Skeleton";
 
 const DonationGrowthChartNoSSR = dynamic(
   () => import("@/components/DonationGrowthChart"),
   { ssr: false },
 );
-
-interface AdminProps {
-  publicKey: string | null;
-  onConnect: (pk: string) => void;
-}
 
 function weekKey(dateStr: string): string {
   const d = new Date(dateStr);
@@ -43,7 +40,8 @@ function weekKey(dateStr: string): string {
   return `${utc.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
 }
 
-export default function ProjectAdmin({ publicKey, onConnect }: AdminProps) {
+export default function ProjectAdmin() {
+  const { publicKey, connect: onConnect } = useWallet();
   const router = useRouter();
   const { projectId } = router.query;
 
@@ -166,7 +164,9 @@ export default function ProjectAdmin({ publicKey, onConnect }: AdminProps) {
       { donorAddress: string; total: number; count: number }
     >();
     for (const d of donations) {
-      const donorAddress = d.donorAddress;
+      const donorAddress =
+        d.anonymous || !d.donorAddress ? "Anonymous" : d.donorAddress;
+      if (!donorAddress) continue;
       const amount = parseFloat(d.amountXLM || d.amount || "0");
       const curr = byDonor.get(donorAddress) || {
         donorAddress,
@@ -405,8 +405,15 @@ export default function ProjectAdmin({ publicKey, onConnect }: AdminProps) {
 
   if (loading) {
     return (
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-12">
-        <div className="card">Loading…</div>
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10 animate-pulse pointer-events-none">
+        <SkeletonBox className="h-8 rounded w-1/3 mb-2" palette="forest" />
+        <SkeletonBox className="h-4 rounded w-1/2 mb-8" palette="forest" />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          {[1, 2, 3, 4].map((i) => (
+            <SkeletonStatCard key={i} palette="forest" />
+          ))}
+        </div>
+        <div className="card h-64" />
       </div>
     );
   }
@@ -423,7 +430,7 @@ export default function ProjectAdmin({ publicKey, onConnect }: AdminProps) {
               className="text-forest-700 font-semibold hover:underline"
               href="/projects"
             >
-              ← Back to projects
+              â† Back to projects
             </Link>
           </div>
         </div>
@@ -443,7 +450,7 @@ export default function ProjectAdmin({ publicKey, onConnect }: AdminProps) {
             matches the project wallet address.
           </p>
           <div className="mt-4 text-xs text-[#8aaa8a] dark:text-forest-300 font-body">
-            Connected: {shortenAddress(publicKey)} • Project wallet:{" "}
+            Connected: {shortenAddress(publicKey)} â€¢ Project wallet:{" "}
             {shortenAddress(project.walletAddress)}
           </div>
           <div className="mt-5">
@@ -451,7 +458,7 @@ export default function ProjectAdmin({ publicKey, onConnect }: AdminProps) {
               className="text-forest-700 font-semibold hover:underline"
               href={`/projects/${project.id}`}
             >
-              View project page →
+              View project page â†’
             </Link>
           </div>
         </div>
@@ -484,18 +491,18 @@ export default function ProjectAdmin({ publicKey, onConnect }: AdminProps) {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {[
           {
-            icon: "💚",
+            icon: "ðŸ’š",
             label: "Total Raised",
             value: formatXLM(project.raisedXLM),
           },
-          { icon: "👥", label: "Donors", value: String(project.donorCount) },
+          { icon: "ðŸ‘¥", label: "Donors", value: String(project.donorCount) },
           {
-            icon: "♻️",
-            label: "CO₂ Offset",
+            icon: "â™»ï¸",
+            label: "COâ‚‚ Offset",
             value: formatCO2(project.co2OffsetKg),
           },
           {
-            icon: "🧾",
+            icon: "ðŸ§¾",
             label: "Recent Donations",
             value: String(donations.length),
           },
@@ -590,7 +597,7 @@ export default function ProjectAdmin({ publicKey, onConnect }: AdminProps) {
                           rel="noopener noreferrer"
                           className="text-[10px] text-emerald-600 hover:underline font-bold uppercase tracking-widest"
                         >
-                          View Proof ↗
+                          View Proof â†—
                         </a>
                       )}
                     </div>
@@ -673,7 +680,8 @@ export default function ProjectAdmin({ publicKey, onConnect }: AdminProps) {
                 >
                   <div>
                     <p className="text-sm font-semibold text-forest-900 font-body">
-                      {shortenAddress(d.donorAddress)} •{" "}
+                      {d.anonymous || !d.donorAddress ? "Anonymous" : shortenAddress(d.donorAddress)} •{" "}
+                      {shortenAddress(d.donorAddress || "")} •{" "}
                       {formatXLM(d.amountXLM || d.amount || "0", 2)}
                     </p>
                     <p className="text-xs text-[#8aaa8a] dark:text-forest-300 font-body">
@@ -682,8 +690,8 @@ export default function ProjectAdmin({ publicKey, onConnect }: AdminProps) {
                   </div>
                   {d.message && (
                     <p className="text-xs text-[#5a7a5a] dark:text-[#8aaa8a] font-body max-w-[220px] text-right">
-                      “{d.message.slice(0, 60)}
-                      {d.message.length > 60 ? "…" : ""}”
+                      â€œ{d.message.slice(0, 60)}
+                      {d.message.length > 60 ? "â€¦" : ""}â€
                     </p>
                   )}
                 </div>
@@ -729,7 +737,7 @@ export default function ProjectAdmin({ publicKey, onConnect }: AdminProps) {
               disabled={postingState === "posting"}
               className="btn-primary w-full disabled:opacity-60"
             >
-              {postingState === "posting" ? "Posting…" : "Post Update"}
+              {postingState === "posting" ? "Postingâ€¦" : "Post Update"}
             </button>
           </div>
         </div>
@@ -784,7 +792,7 @@ export default function ProjectAdmin({ publicKey, onConnect }: AdminProps) {
               }
               className="btn-primary flex-1 disabled:opacity-50"
             >
-              {approvalState === "loading" ? "Processing…" : "Approve"}
+              {approvalState === "loading" ? "Processingâ€¦" : "Approve"}
             </button>
             <button
               onClick={handleReject}
@@ -795,7 +803,7 @@ export default function ProjectAdmin({ publicKey, onConnect }: AdminProps) {
               }
               className="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold px-6 py-3 rounded-xl transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {approvalState === "loading" ? "Processing…" : "Reject"}
+              {approvalState === "loading" ? "Processingâ€¦" : "Reject"}
             </button>
           </div>
         </div>
@@ -821,7 +829,7 @@ export default function ProjectAdmin({ publicKey, onConnect }: AdminProps) {
 
         {project.onChainVerified ? (
           <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-body">
-            ✓ This project is registered on-chain.
+            âœ“ This project is registered on-chain.
           </div>
         ) : (
           <button
@@ -829,7 +837,7 @@ export default function ProjectAdmin({ publicKey, onConnect }: AdminProps) {
             disabled={onChainState === "loading"}
             className="btn-primary w-full disabled:opacity-50"
           >
-            {onChainState === "loading" ? "Registering…" : "Register On-Chain"}
+            {onChainState === "loading" ? "Registeringâ€¦" : "Register On-Chain"}
           </button>
         )}
       </div>
@@ -1007,7 +1015,7 @@ export default function ProjectAdmin({ publicKey, onConnect }: AdminProps) {
                 copied ? "bg-emerald-600 hover:bg-emerald-700" : ""
               }`}
             >
-              {copied ? "✓ Copied!" : "Copy Embed Code"}
+              {copied ? "âœ“ Copied!" : "Copy Embed Code"}
             </button>
           </div>
         </div>
@@ -1015,3 +1023,5 @@ export default function ProjectAdmin({ publicKey, onConnect }: AdminProps) {
     </div>
   );
 }
+
+
