@@ -24,11 +24,6 @@ mod fuzz {
     /// still fit in an i128 without overflowing.
     const MAX_DONATION: i128 = 1_000_000_000 * 10_000_000; // 10^16
 
-    /// 1 XLM expressed in stroops. USDC fuzz tests multiply donations by
-    /// the 8x oracle rate and divide by this constant to get the
-    /// XLM-equivalent units that drive the CO₂ `checked_mul` path.
-    const FUZZ_STROOP: i128 = 10_000_000;
-
     /// Stable msg-hash placeholder for `donate` / `donate_usdc` calls.
     const MSG_HASH: u32 = 42;
 

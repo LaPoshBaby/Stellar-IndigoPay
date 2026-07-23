@@ -389,6 +389,7 @@ mod fuzz {
                 name: SorobanString::from_str(env, &std::format!("M{}", i)),
                 percentage: pct,
                 released: false,
+                disputed: false,
             });
         }
         milestones
