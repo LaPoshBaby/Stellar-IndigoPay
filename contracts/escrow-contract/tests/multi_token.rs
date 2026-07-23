@@ -142,12 +142,18 @@ fn test_claim_milestone_usdc() {
         percentage: 40,
         released: false,
         disputed: false,
+        oracle: None,
+        verified: false,
+        proof_hash: None,
     });
     milestones.push_back(Milestone {
         name: SorobanString::from_str(&env, "Phase 2"),
         percentage: 60,
         released: false,
         disputed: false,
+        oracle: None,
+        verified: false,
+        proof_hash: None,
     });
 
     client.create_job(
@@ -206,6 +212,9 @@ fn test_refund_usdc_job() {
         percentage: 100,
         released: false,
         disputed: false,
+        oracle: None,
+        verified: false,
+        proof_hash: None,
     });
 
     client.create_job(
