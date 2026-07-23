@@ -21,6 +21,7 @@ const logger = require("../logger");
 const pool = require("../db/pool");
 const { isShuttingDown } = require("../services/lifecycle");
 const metrics = require("../services/metrics");
+const { withRetry, rpcServer } = require("../services/stellar");
 
 const HORIZON_URL =
   process.env.NEXT_PUBLIC_HORIZON_URL ||
@@ -79,9 +80,11 @@ router.get("/", async (_req, res) => {
 
   const checks = {
     db: { status: "unknown" },
+    pool: { status: "unknown" },
     readReplicaLag: { status: "skipped" },
     redis: { status: "skipped" },
     horizon: { status: "unknown" },
+    soroban_rpc: { status: "unknown" },
     indexer: { status: "unknown" },
   };
 
@@ -94,6 +97,21 @@ router.get("/", async (_req, res) => {
   checks.db = db.ok
     ? { status: "ok" }
     : { status: "unreachable", reason: db.reason };
+
+  // Pool degradation (high queue depth)
+  const writerPool = pool._writerPool;
+  const waitingCount = writerPool.waitingCount || 0;
+  const max = writerPool.max || 1;
+  if (waitingCount > max * 0.5) {
+    checks.pool = {
+      status: "degraded",
+      reason: "db_pool_degraded",
+      waitingCount,
+      max,
+    };
+  } else {
+    checks.pool = { status: "ok", waitingCount, max };
+  }
 
   // Read replica lag. A missing replica is valid; excessive lag is not.
   const replicaLag = await withTimeout(
@@ -159,26 +177,53 @@ router.get("/", async (_req, res) => {
       ? { status: "ok" }
       : { status: "unreachable", reason: horizon.reason || "non-2xx" };
 
+  // Soroban RPC (best-effort — max 1 retry so the probe stays fast)
+  // Uses withRetry with maxRetries=1 rather than 0 to account for one
+  // transient hiccup, but we don't run the full 3-retry backoff here since
+  // we want the readiness response to be snappy.
+  const sorobanResult = await withTimeout(
+    withRetry(() => rpcServer.getLatestLedger(), 1),
+    CHECK_TIMEOUT_MS,
+    "soroban_rpc",
+  );
+  checks.soroban_rpc = sorobanResult.ok
+    ? { status: "ok" }
+    : { status: "degraded", reason: sorobanResult.reason || "RPC unreachable" };
+
   // Indexer (process-local — does not block on the network)
   try {
     const indexerService = require("../services/indexerService");
     const s = indexerService.getStatus();
-    checks.indexer = { status: s.running ? "ok" : "degraded", ...s };
+    const lagLedgers = Number(s.lagLedgers ?? s.currentLag ?? 0);
+    const isRunning = Boolean(s.isRunning ?? s.running);
+    const indexerStatus = lagLedgers > 50 ? "degraded" : isRunning ? "ok" : "degraded";
+    checks.indexer = {
+      status: indexerStatus,
+      lag_ledgers: lagLedgers,
+      stream_active: isRunning,
+      last_processed_ledger: s.lastProcessedLedger ?? s.last_processed_ledger ?? null,
+      ...s,
+    };
   } catch (err) {
     checks.indexer = { status: "unknown", reason: err.message };
   }
 
   const replicaOk = checks.readReplicaLag.status !== "degraded";
-  const requiredOk = checks.db.status === "ok" && replicaOk;
+  const requiredOk =
+    checks.db.status === "ok" &&
+    checks.pool.status === "ok" &&
+    replicaOk;
   const ready = requiredOk && !isShuttingDown();
 
   if (!ready) {
     const reason =
       checks.db.status !== "ok"
         ? "db"
-        : checks.readReplicaLag.status === "degraded"
-          ? "readReplicaLag"
-          : "draining";
+        : checks.pool.status !== "ok"
+          ? "db_pool_degraded"
+          : checks.readReplicaLag.status === "degraded"
+            ? "readReplicaLag"
+            : "draining";
     metrics.metrics.readinessCheckFailedTotal.inc({ reason });
     logger.warn(
       { event: "readiness_failed", checks },
